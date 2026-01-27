@@ -1,0 +1,27 @@
+{
+  "name": "hangout",
+  "version": "1.0.0",
+  "description": "```",
+  "homepage": "https://github.com/devwithanandhukannan/Hangout#readme",
+  "bugs": {
+    "url": "https://github.com/devwithanandhukannan/Hangout/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devwithanandhukannan/Hangout.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3"
+  }
+}
