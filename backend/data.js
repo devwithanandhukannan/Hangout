@@ -12,3 +12,6 @@ export const user_db = {
 export const activeUsers = new Map(); // userId => socketId
 export const waitingQueue = []; // array of userIds waiting for a match
 export const busyUsers = new Set(); // users currently in a chat
+
+export const post = new Map();
+export const comment = new Map()

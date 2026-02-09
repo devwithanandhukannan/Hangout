@@ -7,6 +7,8 @@ export function authMiddleware(req, res, next) {
 
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET_KEY);
+    const user = jwt.decode(token, process.env.JWT_SECRET_KEY);
+    req.userId = user.userId;
     next();
   } catch {
     res.status(401).json({ message: "Invalid token" });
