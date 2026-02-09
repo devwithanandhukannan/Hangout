@@ -1,1 +1,2 @@
-export const activeUsers_db = []
+export const activeUsers_db = new Map(); 
+// userId -> socketId

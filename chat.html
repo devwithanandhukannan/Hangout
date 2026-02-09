@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Random Chat & Video Test</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #messages { border: 1px solid #ccc; padding: 10px; height: 200px; overflow-y: auto; margin-bottom: 10px; }
+    #chatBox, #videoCallDiv { display: none; margin-top: 10px; }
+    video { width: 300px; height: 200px; background: black; margin-right: 10px; }
+  </style>
+</head>
+<body>
+
+<h2>Random Chat & Video Test</h2>
+
+<button id="findChatBtn">Find Random Chat</button>
+<p id="status">Status: Not connected</p>
+
+<!-- Chat -->
+<div id="chatBox">
+  <div id="messages"></div>
+  <input type="text" id="messageInput" placeholder="Type a message..." />
+  <button id="sendBtn">Send</button>
+  <button id="leaveBtn">Leave Chat</button>
+  <button id="videoBtn">Start Video Call</button>
+</div>
+
+<!-- Video -->
+<div id="videoCallDiv">
+  <video id="localVideo" autoplay muted></video>
+  <video id="remoteVideo" autoplay></video>
+  <br>
+  <button id="endCallBtn">End Call</button>
+</div>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+  const socket = io("http://localhost:8000", { withCredentials: true });
+
+  let currentPartnerId = null;
+  let pc = null;
+  let localStream = null;
+
+  const statusEl = document.getElementById("status");
+  const chatBox = document.getElementById("chatBox");
+  const messages = document.getElementById("messages");
+  const messageInput = document.getElementById("messageInput");
+  const videoCallDiv = document.getElementById("videoCallDiv");
+  const localVideo = document.getElementById("localVideo");
+  const remoteVideo = document.getElementById("remoteVideo");
+
+  // ----------------- Socket Connection -----------------
+  socket.on("connect", () => {
+    statusEl.textContent = "Status: Connected, socketId=" + socket.id;
+  });
+
+  // ----------------- Chat -----------------
+  document.getElementById("findChatBtn").onclick = () => {
+    socket.emit("findRandomChat");
+    statusEl.textContent = "Status: Looking for a partner...";
+  };
+
+  socket.on("waitingForPartner", () => {
+    statusEl.textContent = "Status: Waiting for a partner...";
+  });
+
+  socket.on("chatStarted", ({ room, partnerId }) => {
+    currentPartnerId = partnerId;
+    statusEl.textContent = "Status: Chat started with user " + partnerId;
+    chatBox.style.display = "block";
+    messages.innerHTML = "";
+  });
+
+  socket.on("privateMessage", (msg) => {
+    const el = document.createElement("div");
+    el.textContent = msg.senderId + ": " + msg.text;
+    messages.appendChild(el);
+    messages.scrollTop = messages.scrollHeight;
+  });
+
+  document.getElementById("sendBtn").onclick = () => {
+    const text = messageInput.value.trim();
+    if (!text || !currentPartnerId) return;
+    socket.emit("privateMessage", { text });
+    messageInput.value = "";
+  };
+
+  document.getElementById("leaveBtn").onclick = () => {
+    if (currentPartnerId) {
+      socket.emit("leaveChat", { partnerId: currentPartnerId });
+      chatBox.style.display = "none";
+      statusEl.textContent = "Status: Left chat";
+      currentPartnerId = null;
+    }
+  };
+
+  socket.on("partnerLeft", () => {
+    alert("Your partner left the chat");
+    chatBox.style.display = "none";
+    videoCallDiv.style.display = "none";
+    currentPartnerId = null;
+    statusEl.textContent = "Status: Partner left";
+  });
+
+  // ----------------- Video Call -----------------
+  document.getElementById("videoBtn").onclick = async () => {
+    if (!currentPartnerId) return;
+
+    videoCallDiv.style.display = "block";
+    chatBox.style.display = "none";
+
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localVideo.srcObject = localStream;
+
+    pc = new RTCPeerConnection();
+
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    pc.ontrack = event => {
+      remoteVideo.srcObject = event.streams[0];
+    };
+
+    pc.onicecandidate = event => {
+      if (event.candidate) {
+        socket.emit("signal", { partnerId: currentPartnerId, data: { candidate: event.candidate } });
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("signal", { partnerId: currentPartnerId, data: { sdp: offer } });
+  };
+
+  document.getElementById("endCallBtn").onclick = () => {
+    if (pc) pc.close();
+    pc = null;
+    videoCallDiv.style.display = "none";
+    chatBox.style.display = "block";
+  };
+
+  // ----------------- Signaling -----------------
+  socket.on("signal", async ({ data }) => {
+    if (!pc) return;
+
+    if (data.sdp) {
+      await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      if (data.sdp.type === "offer") {
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit("signal", { partnerId: currentPartnerId, data: { sdp: pc.localDescription } });
+      }
+    } else if (data.candidate) {
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    }
+  });
+</script>
+
+</body>
+</html>
