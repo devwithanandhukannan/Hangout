@@ -2,33 +2,51 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>MeetRandom</title>
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <title>MeetRandom Auth</title>
+
   <style>
     body {
       background: #0f172a;
       color: #e5e7eb;
       font-family: Arial;
-      padding: 20px;
+      padding: 40px;
+      max-width: 400px;
+      margin: auto;
     }
+
+    h2 {
+      text-align: center;
+    }
+
     input, button {
       width: 100%;
-      padding: 8px;
-      margin: 6px 0;
+      padding: 10px;
+      margin: 8px 0;
+      border-radius: 6px;
+      border: none;
     }
+
+    input {
+      background: #020617;
+      color: white;
+      border: 1px solid #334155;
+    }
+
     button {
       background: #2563eb;
-      border: none;
       color: white;
       cursor: pointer;
+      font-weight: bold;
     }
-  
-    #log {
-      background: #020617;
-      height: 250px;
-      overflow-y: auto;
-      padding: 10px;
+
+    button:hover {
+      background: #1d4ed8;
+    }
+
+    #msg {
       margin-top: 10px;
+      font-size: 14px;
+      text-align: center;
     }
   </style>
 </head>
@@ -36,73 +54,52 @@
 
 <h2>🚀 MeetRandom</h2>
 
-<!-- AUTH -->
-<div id="auth">
-  <h3>Login / Signup</h3>
-  <input id="username" placeholder="Username" />
-  <input id="email" placeholder="Email (signup only)" />
-  <input id="password" type="password" placeholder="Password" />
-  <button onclick="signup()">Signup</button>
-  <button onclick="login()">Login</button>
-</div>
+<h3>Login / Signup</h3>
 
-<!-- CHAT -->
-<div id="chat">
-  <h3 id="userInfo"></h3>
-  <input id="msg" placeholder="Type message..." />
-  <button onclick="sendMsg()">Send</button>
-  <div id="log"></div>
-</div>
+<input id="username" placeholder="Username" />
+<input id="email" placeholder="Email (Signup only)" />
+<input id="password" type="password" placeholder="Password" />
 
-<button type="button" onclick="connectSocket()">connect socket</button>
+<button onclick="signup()">Signup</button>
+<button onclick="login()">Login</button>
+
+<div id="msg"></div>
 
 <script>
-  let socket = null;
-  let myUserId = null;
+async function signup() {
 
-  function log(msg) {
-    const div = document.createElement("div");
-    div.textContent = msg;
-    document.getElementById("log").appendChild(div);
-  }
+    console.log(username.value, email.value ,password.value);
 
-  async function signup() {
-    await fetch("http://localhost:8000/signup", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: username.value,
-        email: email.value,
-        password: password.value
-      })
-    });
-  }
 
-  async function login() {
-    await fetch("http://localhost:8000/signin", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: username.value,
-        password: password.value
-      })
-    });
-  }
+  const res = await fetch("http://localhost:8000/signup", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: username.value.trim(),
+      email: email.value.trim(),
+      password: password.value
+    })
+  });
 
-  function connectSocket() {
-    socket = io("http://localhost:8000", {
-      withCredentials: true
-    });
-  }
+  msg.textContent = res.ok ? "Signup successful" : "Signup failed";
+}
 
-  function sendMsg() {
-    const text = msg.value;
-    if (!text) return;
-    socket.emit("message", text);
-    msg.value = "";
-  }
+
+async function login() {
+  const res = await fetch("http://localhost:8000/signin", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: username.value,
+      password: password.value
+    })
+  });
+
+  document.getElementById("msg").textContent =
+    res.ok ? "Login successful" : "Login failed";
+}
 </script>
 
 </body>
