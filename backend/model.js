@@ -48,8 +48,8 @@ export const Post = mongoose.model('Post', postSchema);
 export const Comment = mongoose.model('Comment', commentSchema);
 export const Chat = mongoose.model('Chat', chatSchema);
 
-// In-memory data
-export const activeUsers = new Map(); // userId => socketId
-export const waitingQueue = []; // { userId, interests, socketId }
-export const busyUsers = new Set(); // userIds currently in chat
+
+export const activeUsers = new Map(); 
+export const waitingQueue = []; 
+export const busyUsers = new Set();
 

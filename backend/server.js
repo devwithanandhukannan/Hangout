@@ -460,8 +460,33 @@ app.get('/profile', authMiddleware, async (req, res) => {
         res.status(500).json({ message: 'Server error' });
     }
 });
+app.patch('/update_profile', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const { username, password, email } = req.body;
 
+        let updateData = { username, email };
 
+        if (password) {
+            updateData.password = await bcrypt.hash(password, 10);
+        }
+
+        const userobj = await User.findByIdAndUpdate(
+            userId,
+            updateData,
+        );
+
+        if (!userobj) {
+            return res.status(400).json({ message: 'User not found' });
+        }
+
+        res.status(200).json({ message: 'Updated', user: userobj });
+
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
 /*
 =================================================================
                         Online Chat Route
@@ -575,111 +600,30 @@ app.get('/feed', authMiddleware, async (req, res) => {
 app.patch('/unfollow', authMiddleware, async (req, res) => {
     try {
         const { unfollow_user_id } = req.body;
-        const userID = req.userId;
 
-        const [currentUser, targetUser] = await Promise.all([
-            User.findById(userID),
-            User.findById(unfollow_user_id)
-        ]);
+        const result = await followUser(req.userId, unfollow_user_id);
 
-        if (!currentUser || !targetUser) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        const isFollowing = currentUser.following.some(
-            id => id.toString() === unfollow_user_id
-        );
-
-        if (!isFollowing) {
-            return res.status(400).json({ message: 'You are not following this user' });
-        }
-
-        // remove from following
-        currentUser.following = currentUser.following.filter(
-            id => id.toString() !== unfollow_user_id
-        );
-
-        // remove from followers
-        targetUser.followers = targetUser.followers.filter(
-            id => id.toString() !== userID
-        );
-
-        // remove friendship if exists
-        currentUser.friends = currentUser.friends.filter(
-            id => id.toString() !== unfollow_user_id
-        );
-
-        targetUser.friends = targetUser.friends.filter(
-            id => id.toString() !== userID
-        );
-
-        await Promise.all([currentUser.save(), targetUser.save()]);
-
-        res.json({
-            success: true,
-            unfollowed: unfollow_user_id
-        });
+        res.status(200).json(result);
 
     } catch (error) {
         console.error('Unfollow error:', error);
-        res.status(500).json({ message: 'Server error' });
+        res.status(error.status || 500).json({ message: error.message || 'Server error' });
     }
 });
 
 app.patch('/remove_follower', authMiddleware, async (req, res) => {
     try {
         const { follower_user_id } = req.body;
-        const userID = req.userId;
 
-        const [currentUser, followerUser] = await Promise.all([
-            User.findById(userID),
-            User.findById(follower_user_id)
-        ]);
+        const result = await followUser(follower_user_id, req.userId);
 
-        if (!currentUser || !followerUser) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        const isFollower = currentUser.followers.some(
-            id => id.toString() === follower_user_id
-        );
-
-        if (!isFollower) {
-            return res.status(400).json({ message: 'User is not your follower' });
-        }
-
-        // remove follower
-        currentUser.followers = currentUser.followers.filter(
-            id => id.toString() !== follower_user_id
-        );
-
-        // remove following from follower side
-        followerUser.following = followerUser.following.filter(
-            id => id.toString() !== userID
-        );
-
-        // remove friendship if exists
-        currentUser.friends = currentUser.friends.filter(
-            id => id.toString() !== follower_user_id
-        );
-
-        followerUser.friends = followerUser.friends.filter(
-            id => id.toString() !== userID
-        );
-
-        await Promise.all([currentUser.save(), followerUser.save()]);
-
-        res.json({
-            success: true,
-            removedFollower: follower_user_id
-        });
+        res.status(200).json(result);
 
     } catch (error) {
         console.error('Remove follower error:', error);
-        res.status(500).json({ message: 'Server error' });
+        res.status(error.status || 500).json({ message: error.message || 'Server error' });
     }
 });
-
 
 
 const httpServer = createServer(app);
@@ -725,7 +669,6 @@ io.on("connection", (socket) => {
                         const commonInterests = userInterests.filter(interest =>
                             waitingUser.interests.includes(interest)
                         );
-
                         if (commonInterests.length > 0) {
                             matchedPartner = waitingUser;
                             matchIndex = i;
