@@ -9,7 +9,7 @@ import { Server } from 'socket.io';
 import { authMiddleware, socketAuthMiddleware } from './middleware/auth.js';
 import { activeUsers, busyUsers, waitingQueue, Chat, Comment, Post, User } from './model.js';
 import mongoose from 'mongoose';
-import { log } from 'console';
+
 dotenv.config();
 
 const app = express();
@@ -26,14 +26,10 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-
-
 // Database connection
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('MongoDB connected'))
     .catch(err => console.error('MongoDB connection error:', err));
-
-//controller
 
 // Increase rank for a user
 async function increaseRank(myUserId, targetUserId) {
@@ -147,28 +143,14 @@ const saveChat = async (req, res) => {
   }
 };
 
-// async function removeFollowers(myUserId, targetUserId){
-//     if(myUserId.toString() === targetUserId.toString()){
-//         throw {status: 400, message: 'Both current user and target userID is same'}
-//     }
-//     const [fromUser, toUser] = await Promise.all([
-//         User.findById(myUserId),
-//         User.findById(targetUserId)
-//     ])
 
-//     if(!fromUser || !toUser){
-//         throw { status: 404, message: 'User not found' };
-//     }
+// ROUTES
 
-//     const checkTargetUser_is_a_Follower = fromUser.followers.some(id=>id.toString() === targetUserId.toString())
-//     let message;
-//     if(checkTargetUser_is_a_Follower){
-//         fromUser.followers.pull()
-//     }
-
-// }
-
-// Routes
+/*
+=================================================================
+                            Auth Route
+=================================================================
+*/
 app.post('/signup', async (req, res) => {
     try {
         const { username, password, email } = req.body;
@@ -211,6 +193,48 @@ app.post('/signup', async (req, res) => {
         res.status(500).json({ message: 'Server error' });
     }
 });
+
+app.post('/signin', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const user = await User.findOne({ username });
+        if (!user) {
+            return res.status(400).json({ message: 'Invalid username' });
+        }
+        const ok = await bcrypt.compare(password, user.password);
+        if (!ok) {
+            return res.status(401).json({ message: 'Wrong password' });
+        }
+        const token = jwt.sign(
+            { userId: user._id, username: user.username },
+            process.env.JWT_SECRET_KEY,
+            { expiresIn: '1h' }
+        );
+
+        res.cookie('hangout', token, {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: false
+        }).json({
+            message: 'Logged in',
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                interests: user.interests
+            }
+        });
+    } catch (error) {
+        console.error('Signin error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+/*
+=================================================================
+                            Chat Route
+=================================================================
+*/
 
 app.delete("/chat/:chatid", authMiddleware, async (req, res) => {
   try {
@@ -266,6 +290,12 @@ app.get("/chats", authMiddleware, async (req, res) => {
 
 app.post("/save-chat", authMiddleware, saveChat);
 
+/*
+=================================================================
+                            Post Route
+=================================================================
+*/
+
 app.post('/post', authMiddleware, async (req, res) => {
     try {
         const { content } = req.body;
@@ -317,6 +347,25 @@ app.delete('/delete-post/:postId', authMiddleware, async (req, res) => {
     }
 });
 
+app.get('/posts', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.userId
+        const posts = await Post.find({ userId })
+            .populate('userId', 'username')
+            .sort({ createdAt: -1 });
+
+        res.status(200).json(posts);
+    } catch (error) {
+        console.error('Get posts error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+/*
+=================================================================
+                            Comment Route
+=================================================================
+*/
 app.post('/comment', authMiddleware, async (req, res) => {
     try {
         const { postId, content } = req.body;
@@ -387,41 +436,11 @@ app.get('/comments/:postId', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/signin', async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        const user = await User.findOne({ username });
-        if (!user) {
-            return res.status(400).json({ message: 'Invalid username' });
-        }
-        const ok = await bcrypt.compare(password, user.password);
-        if (!ok) {
-            return res.status(401).json({ message: 'Wrong password' });
-        }
-        const token = jwt.sign(
-            { userId: user._id, username: user.username },
-            process.env.JWT_SECRET_KEY,
-            { expiresIn: '1h' }
-        );
-
-        res.cookie('hangout', token, {
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: false
-        }).json({
-            message: 'Logged in',
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                interests: user.interests
-            }
-        });
-    } catch (error) {
-        console.error('Signin error:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
+/*
+=================================================================
+                            Profile Route
+=================================================================
+*/
 
 app.get('/profile', authMiddleware, async (req, res) => {
     try {
@@ -442,6 +461,12 @@ app.get('/profile', authMiddleware, async (req, res) => {
     }
 });
 
+
+/*
+=================================================================
+                        Online Chat Route
+=================================================================
+*/
 app.post('/save-chat', authMiddleware, async (req, res) => {
     try {
         const { room, senderId, receiverId, message } = req.body;
@@ -482,6 +507,12 @@ app.get('/saved-chats', authMiddleware, async (req, res) => {
     }
 });
 
+/*
+=================================================================
+                        Interest Chat Route
+=================================================================
+*/
+
 app.patch('/interests', authMiddleware, async (req, res) => {
     try {
         const { interest } = req.body;
@@ -511,32 +542,12 @@ app.get('/interests', authMiddleware, async (req, res) => {
     }
 });
 
-app.patch('/interests', authMiddleware, async (req, res) => {
-    try {
-        const { interests } = req.body;
+/*
+=================================================================
+                      Chat APP Route
+=================================================================
+*/
 
-        await User.findByIdAndUpdate(req.userId, { interests });
-
-        res.status(200).json({ message: 'Interests updated' });
-    } catch (error) {
-        console.error('Update interests error:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-app.get('/posts', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.userId
-        const posts = await Post.find({ userId })
-            .populate('userId', 'username')
-            .sort({ createdAt: -1 });
-
-        res.status(200).json(posts);
-    } catch (error) {
-        console.error('Get posts error:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
 
 app.get('/feed', authMiddleware, async (req, res) => {
     try {
