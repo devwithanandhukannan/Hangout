@@ -21,13 +21,11 @@
 
 <p id="status">Status: Not connected</p>
 
-<!-- Interests -->
 <h3>Your Interests</h3>
 <div id="interestList"></div>
 
 <button id="findChatBtn">Find Chat</button>
 
-<!-- Chat -->
 <div id="chatBox">
   <div id="messages"></div>
   <input type="text" id="messageInput" placeholder="Type a message..." />
@@ -35,11 +33,11 @@
   <button id="leaveBtn">Leave Chat</button>
   <button id="videoBtn">Start Video Call</button>
   <br>
+  <button onclick="savechat()">save chat</button>
   <button class="actionBtn likeBtn" id="likeBtn">👍 Like</button>
   <button class="actionBtn followBtn" id="followBtn">🤝 Follow</button>
 </div>
 
-<!-- Video -->
 <div id="videoCallDiv">
   <video id="localVideo" autoplay muted></video>
   <video id="remoteVideo" autoplay></video>
@@ -55,6 +53,9 @@
   let pc = null;
   let localStream = null;
 
+  let chatData = {};
+  let messageIndex = 0;
+
   const statusEl = document.getElementById("status");
   const chatBox = document.getElementById("chatBox");
   const messages = document.getElementById("messages");
@@ -63,17 +64,39 @@
   const localVideo = document.getElementById("localVideo");
   const remoteVideo = document.getElementById("remoteVideo");
   const interestList = document.getElementById("interestList");
-
   const likeBtn = document.getElementById("likeBtn");
   const followBtn = document.getElementById("followBtn");
 
-  // ----------------- Socket Connection -----------------
   socket.on("connect", () => {
     statusEl.textContent = "Status: Connected (" + socket.id + ")";
     socket.emit("getInterests");
   });
 
-  // ----------------- Interests -----------------
+  async function savechat() {
+  if (!currentPartnerId) return;
+
+  try {
+    const res = await fetch("http://localhost:8000/save-chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        partnerId: currentPartnerId,
+        chatData: chatData
+      })
+    });
+
+    const data = await res.json();
+    console.log(data);
+
+  } catch (err) {
+    console.error("Error saving chat:", err);
+  }
+}
+
+
   socket.on("interests", (interests) => {
     interestList.innerHTML = "";
     interests.forEach(i => {
@@ -84,7 +107,6 @@
     });
   });
 
-  // ----------------- Find Chat -----------------
   document.getElementById("findChatBtn").onclick = () => {
     socket.emit("findChat");
     statusEl.textContent = "Status: Looking for a partner...";
@@ -99,21 +121,62 @@
     statusEl.textContent = `Status: Connected (${matchType} match)`;
     chatBox.style.display = "block";
     messages.innerHTML = "";
+
+    // Reset chat data
+    chatData = {};
+    messageIndex = 0;
   });
 
   // ----------------- Messaging -----------------
+
   socket.on("privateMessage", (msg) => {
+    const sender = msg.senderId === socket.id ? "me" : "partner";
+    const time = new Date().toLocaleTimeString();
+
+    // Store in structured object
+    chatData[messageIndex] = {
+      user: sender,
+      message: msg.text,
+      time: time
+    };
+
     const el = document.createElement("div");
-    el.textContent = msg.senderId + ": " + msg.text;
+    el.dataset.index = messageIndex;
+    el.textContent = sender + ": " + msg.text + " (" + time + ")";
     messages.appendChild(el);
+
+    messageIndex++;
     messages.scrollTop = messages.scrollHeight;
+
+    console.log(chatData);
   });
 
   document.getElementById("sendBtn").onclick = () => {
     const text = messageInput.value.trim();
     if (!text || !currentPartnerId) return;
+
     socket.emit("privateMessage", { text });
+
+    const time = new Date().toLocaleTimeString();
+
+    // Store your own message immediately
+    chatData[messageIndex] = {
+      user: "me",
+      message: text,
+      time: time
+    };
+
+    const el = document.createElement("div");
+    el.dataset.index = messageIndex;
+    el.textContent = "me: " + text + " (" + time + ")";
+    messages.appendChild(el);
+
+    messageIndex++;
+    messages.scrollTop = messages.scrollHeight;
+
     messageInput.value = "";
+
+    console.log(chatData);
   };
 
   document.getElementById("leaveBtn").onclick = () => {
@@ -134,6 +197,7 @@
   }
 
   // ----------------- Video Call -----------------
+
   document.getElementById("videoBtn").onclick = async () => {
     videoCallDiv.style.display = "block";
     chatBox.style.display = "none";
@@ -162,7 +226,6 @@
     chatBox.style.display = "block";
   };
 
-  // ----------------- Signaling -----------------
   socket.on("signal", async ({ data }) => {
     if (!pc) return;
 
@@ -178,20 +241,18 @@
     }
   });
 
-  // ----------------- Like & Follow -----------------
-  likeBtn.onclick = async () => {
+  likeBtn.onclick = () => {
     if (!currentPartnerId) return;
     socket.emit("like");
     console.log("Sent like to:", currentPartnerId);
   };
 
-  followBtn.onclick = async () => {
+  followBtn.onclick = () => {
     if (!currentPartnerId) return;
     socket.emit("follow");
     console.log("Sent follow to:", currentPartnerId);
   };
 
-  // Optional: receive confirmation from server
   socket.on("ranked", ({ partnerId }) => {
     console.log("You liked:", partnerId);
   });

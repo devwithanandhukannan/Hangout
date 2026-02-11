@@ -29,13 +29,19 @@ const commentSchema = new mongoose.Schema({
 });
 
 const chatSchema = new mongoose.Schema({
-    room: { type: String, required: true },
-    senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    message: { type: String, required: true },
-    timestamp: { type: Date, default: Date.now },
-    savedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+  users: [
+    { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true }
+  ],
+  messages: {
+    type: Object, 
+    required: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
 });
+
 
 export const User = mongoose.model('User', userSchema);
 export const Post = mongoose.model('Post', postSchema);

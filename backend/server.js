@@ -37,23 +37,36 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // Increase rank for a user
 async function increaseRank(myUserId, targetUserId) {
+
     const user = await User.findById(targetUserId);
     if (!user) throw { status: 404, message: 'User not found' };
 
-    if (user.rank.voters.includes(myUserId)) {
-        throw { status: 400, message: 'You already ranked this user' };
+    const alreadyVoted = user.rank.voters
+        .some(id => id.toString() === myUserId.toString());
+
+    let message;
+
+    if (alreadyVoted) {
+        user.rank.voters.pull(myUserId);
+        user.rank.count = Math.max(0, user.rank.count - 1);
+        message = 'unliked';
+    } else {
+        user.rank.voters.addToSet(myUserId);
+        user.rank.count += 1;
+        message = 'liked';
     }
 
-    user.rank.count += 1;
-    user.rank.voters.push(myUserId);
     await user.save();
 
-    return user.rank.count;
+    return {
+        count: user.rank.count,
+        message
+    };
 }
-
 // Follow a user
 async function followUser(myUserId, targetUserId) {
-    if (myUserId === targetUserId) {
+
+    if (myUserId.toString() === targetUserId.toString()) {
         throw { status: 400, message: 'Cannot follow yourself' };
     }
 
@@ -62,27 +75,98 @@ async function followUser(myUserId, targetUserId) {
         User.findById(targetUserId)
     ]);
 
-    if (!fromUser || !toUser) throw { status: 404, message: 'User not found' };
-
-    if (fromUser.following.includes(targetUserId)) {
-        throw { status: 400, message: 'Already following' };
+    if (!fromUser || !toUser) {
+        throw { status: 404, message: 'User not found' };
     }
 
-    fromUser.following.push(targetUserId);
-    toUser.followers.push(myUserId);
+    const alreadyFollowing = fromUser.following
+        .some(id => id.toString() === targetUserId.toString());
 
-    const isMutual = toUser.following.includes(myUserId);
-    if (isMutual) {
-        fromUser.friends.push(targetUserId);
-        toUser.friends.push(myUserId);
+    let message;
+
+    if (alreadyFollowing) {
+        fromUser.following.pull(targetUserId);
+        toUser.followers.pull(myUserId);
+
+        fromUser.friends.pull(targetUserId);
+        toUser.friends.pull(myUserId);
+
+        message = 'Unfollowed successfully';
+    } else {
+        fromUser.following.push(targetUserId);
+        toUser.followers.push(myUserId);
+
+        message = 'Followed successfully';
+
+        const isMutual = toUser.following
+            .some(id => id.toString() === myUserId.toString());
+
+        if (isMutual) {
+            fromUser.friends.addToSet(targetUserId);
+            toUser.friends.addToSet(myUserId);
+        }
     }
 
     await Promise.all([fromUser.save(), toUser.save()]);
 
-    return { followed: targetUserId, mutual: isMutual };
+    return {
+        targetUserId,
+        message
+    };
 }
 
+const saveChat = async (req, res) => {
+  try {
+    const { partnerId, chatData } = req.body;
 
+    if (!partnerId || !chatData) {
+      return res.status(400).json({ message: "Missing required data" });
+    }
+
+    const userId = req.user._id;
+
+    const newChat = new Chat({
+      users: [userId, partnerId],
+      messages: chatData
+    });
+
+    await newChat.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Chat saved successfully",
+      chatId: newChat._id
+    });
+
+  } catch (error) {
+    console.error("Save chat error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to save chat"
+    });
+  }
+};
+
+// async function removeFollowers(myUserId, targetUserId){
+//     if(myUserId.toString() === targetUserId.toString()){
+//         throw {status: 400, message: 'Both current user and target userID is same'}
+//     }
+//     const [fromUser, toUser] = await Promise.all([
+//         User.findById(myUserId),
+//         User.findById(targetUserId)
+//     ])
+
+//     if(!fromUser || !toUser){
+//         throw { status: 404, message: 'User not found' };
+//     }
+
+//     const checkTargetUser_is_a_Follower = fromUser.followers.some(id=>id.toString() === targetUserId.toString())
+//     let message;
+//     if(checkTargetUser_is_a_Follower){
+//         fromUser.followers.pull()
+//     }
+
+// }
 
 // Routes
 app.post('/signup', async (req, res) => {
@@ -128,41 +212,59 @@ app.post('/signup', async (req, res) => {
     }
 });
 
-app.post('/signin', async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        const user = await User.findOne({ username });
-        if (!user) {
-            return res.status(400).json({ message: 'Invalid username' });
-        }
-        const ok = await bcrypt.compare(password, user.password);
-        if (!ok) {
-            return res.status(401).json({ message: 'Wrong password' });
-        }
-        const token = jwt.sign(
-            { userId: user._id, username: user.username },
-            process.env.JWT_SECRET_KEY,
-            { expiresIn: '1h' }
-        );
+app.delete("/chat/:chatid", authMiddleware, async (req, res) => {
+  try {
+    const { chatid } = req.params;
 
-        res.cookie('hangout', token, {
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: false
-        }).json({
-            message: 'Logged in',
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                interests: user.interests
-            }
-        });
-    } catch (error) {
-        console.error('Signin error:', error);
-        res.status(500).json({ message: 'Server error' });
+    const deletedChat = await Chat.findByIdAndDelete(chatid);
+
+    if (!deletedChat) {
+      return res.status(404).json({
+        success: false,
+        message: "Chat not found"
+      });
     }
+
+    res.status(200).json({
+      success: true,
+      message: "Chat deleted successfully",
+      data: deletedChat
+    });
+
+  } catch (error) {
+    console.error("Delete chat error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete chat"
+    });
+  }
 });
+
+app.get("/chats", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    console.log(userId);
+    
+    const chats = await Chat.find({
+      users: userId
+    })
+    .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      chats
+    });
+
+  } catch (error) {
+    console.error("Get chats error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch chats"
+    });
+  }
+});
+
+app.post("/save-chat", authMiddleware, saveChat);
 
 app.post('/post', authMiddleware, async (req, res) => {
     try {
@@ -281,6 +383,42 @@ app.get('/comments/:postId', authMiddleware, async (req, res) => {
         res.status(200).json(comments);
     } catch (error) {
         console.error('Get comments error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+app.post('/signin', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const user = await User.findOne({ username });
+        if (!user) {
+            return res.status(400).json({ message: 'Invalid username' });
+        }
+        const ok = await bcrypt.compare(password, user.password);
+        if (!ok) {
+            return res.status(401).json({ message: 'Wrong password' });
+        }
+        const token = jwt.sign(
+            { userId: user._id, username: user.username },
+            process.env.JWT_SECRET_KEY,
+            { expiresIn: '1h' }
+        );
+
+        res.cookie('hangout', token, {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: false
+        }).json({
+            message: 'Logged in',
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                interests: user.interests
+            }
+        });
+    } catch (error) {
+        console.error('Signin error:', error);
         res.status(500).json({ message: 'Server error' });
     }
 });
@@ -649,35 +787,22 @@ io.on("connection", (socket) => {
         }
     });
 
-    socket.on("privateMessage", async ({ text, room }) => {
-        try {
-            const rooms = Array.from(socket.rooms).filter(r => r !== socket.id);
-            const targetRoom = room || (rooms.length > 0 ? rooms[0] : null);
+    socket.on("privateMessage", ({ text, room }) => {
+    try {
+        const rooms = Array.from(socket.rooms).filter(r => r !== socket.id);
+        const targetRoom = room || (rooms.length > 0 ? rooms[0] : null);
 
-            if (!targetRoom) return;
+        if (!targetRoom) return;
 
-            const userIds = targetRoom.split("_");
-            const receiverId = userIds.find(id => id !== socket.userId);
+        io.to(targetRoom).emit("privateMessage", {
+            senderId: socket.userId,
+            text
+        });
 
-            if (receiverId) {
-                const chat = new Chat({
-                    room: targetRoom,
-                    senderId: socket.userId,
-                    receiverId,
-                    message: text
-                });
-                await chat.save();
-            }
-
-            io.to(targetRoom).emit("privateMessage", {
-                senderId: socket.userId,
-                text,
-                timestamp: new Date()
-            });
-        } catch (error) {
-            console.error("Private message error:", error);
-        }
-    });
+    } catch (error) {
+        console.error("Private message error:", error);
+    }
+});
 
     socket.on("follow", async () => {
         try {
@@ -709,14 +834,12 @@ io.on("connection", (socket) => {
             if (!receiverId) return;
 
             await increaseRank(socket.userId, receiverId);
-            console.log("liked", receiverId);
 
             socket.emit("ranked", { partnerId: receiverId });
         } catch (error) {
             console.error("liking error:", error);
         }
     });
-
 
     socket.on("signal", ({ data, room }) => {
         const targetRoom = room || Array.from(socket.rooms).find(r => r !== socket.id);
