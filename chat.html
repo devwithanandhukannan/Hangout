@@ -121,8 +121,6 @@
     statusEl.textContent = `Status: Connected (${matchType} match)`;
     chatBox.style.display = "block";
     messages.innerHTML = "";
-
-    // Reset chat data
     chatData = {};
     messageIndex = 0;
   });
@@ -195,8 +193,6 @@
     currentPartnerId = null;
     statusEl.textContent = "Status: " + msg;
   }
-
-  // ----------------- Video Call -----------------
 
   document.getElementById("videoBtn").onclick = async () => {
     videoCallDiv.style.display = "block";
