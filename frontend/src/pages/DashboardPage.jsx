@@ -13,16 +13,18 @@ function parseInterests(raw) {
 }
 
 export default function DashboardPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
+
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [micOn, setMicOn]     = useState(true);
-  const [camOn, setCamOn]     = useState(true);
-  const [interests, setInterests]       = useState([]);
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [interests, setInterests] = useState([]);
   const [interestInput, setInterestInput] = useState("");
   const [interestStatus, setInterestStatus] = useState("");
   const [loadingInterests, setLoadingInterests] = useState(true);
   const [friends, setFriends] = useState([]);
+  const [rankScore, setRankScore] = useState(0);
 
   useEffect(() => {
     getInterests()
@@ -31,8 +33,11 @@ export default function DashboardPage() {
       .finally(() => setLoadingInterests(false));
 
     getProfile()
-      .then((d) => { const p = d.user || d; setFriends(p.friends || p.following || []); })
-      .catch(() => setFriends([]));
+      .then((p) => {
+        setFriends(p.friends || []);
+        setRankScore(p.rank?.count ?? 0);
+      })
+      .catch(() => {});
   }, []);
 
   const addInterest = async () => {
@@ -58,6 +63,13 @@ export default function DashboardPage() {
   const displayName = user?.username || "User";
   const handle      = `@${user?.username || "user"}`;
 
+  // Navigate to chat with a specific friend
+  const startFriendChat = (friend) => {
+    const fid   = typeof friend === "string" ? friend : friend._id || friend.id;
+    const fname = typeof friend === "string" ? friend : friend.username || "Friend";
+    navigate("/chat", { state: { friendId: fid, friendName: fname } });
+  };
+
   return (
     <div
       className="h-screen flex flex-col bg-black text-white antialiased overflow-hidden"
@@ -80,19 +92,32 @@ export default function DashboardPage() {
       {/* Body */}
       <main className="flex-1 min-h-0 px-2 sm:px-4 lg:px-6 py-4 flex gap-3 sm:gap-4 overflow-hidden">
 
-        {/* ── Left sidebar ─────────────────────────────────────────────── */}
+        {/* ── Left sidebar ──────────────────────────────────────────────────── */}
         <aside className="w-56 sm:w-64 flex-shrink-0 flex flex-col bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
           <div className="flex-shrink-0 p-3 border-b border-white/10">
-            <div className="text-xs font-semibold text-gray-100">Interest history</div>
+            <div className="text-xs font-semibold text-gray-100">Quick links</div>
           </div>
 
-          <Link
-            to="/chat-history"
-            className="flex-1 flex flex-col items-center justify-center gap-2 text-[11px] text-gray-400 hover:text-white hover:bg-white/5 transition px-4 text-center"
-          >
-            <span className="text-2xl">🗂</span>
-            View your chat history
-          </Link>
+          <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1">
+            <Link to="/chat-history"
+              className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/10 transition text-xs font-medium">
+              <span>🗂</span> Chat History
+            </Link>
+            <Link to="/feed"
+              className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/10 transition text-xs font-medium">
+              <span>📰</span> Community Feed
+            </Link>
+            <Link to="/post"
+              className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/10 transition text-xs font-medium">
+              <span>✏️</span> Post Something
+            </Link>
+          </div>
+
+          {/* Rank display */}
+          <div className="flex-shrink-0 border-t border-white/10 px-3 py-2 flex items-center justify-between">
+            <span className="text-[11px] text-gray-400">Your rank</span>
+            <span className="text-sm font-bold text-yellow-400">★ {rankScore}</span>
+          </div>
 
           {/* Profile */}
           <div className="flex-shrink-0 relative border-t border-white/10 px-3 py-2.5">
@@ -100,7 +125,7 @@ export default function DashboardPage() {
               onClick={(e) => { e.stopPropagation(); setProfileMenuOpen(!profileMenuOpen); }}
               className="flex items-center gap-2 text-xs w-full text-left"
             >
-              <div className="h-9 w-9 flex-shrink-0 rounded-full bg-white text-black flex items-center justify-center font-semibold text-sm">
+              <div className="h-9 w-9 flex-shrink-0 rounded-full bg-white text-black flex items-center justify-center font-bold text-sm">
                 {initial}
               </div>
               <div className="flex-1 min-w-0">
@@ -114,15 +139,16 @@ export default function DashboardPage() {
               <div className="absolute bottom-full mb-1 left-3 w-40 bg-black border border-white/10 rounded-xl shadow-lg text-xs overflow-hidden flex flex-col z-50">
                 <Link to="/settings" className="px-3 py-2 hover:bg-white/5 transition-colors">Settings</Link>
                 <button
-                  onClick={() => { logout(); navigate("/"); }}
-                  className="text-left px-3 py-2 text-red-300 hover:bg-white/5 transition-colors"
-                >Logout</button>
+                  onClick={() => { logout(); navigate("/login"); }}
+                  className="text-left px-3 py-2 text-red-300 hover:bg-white/5 transition-colors">
+                  Logout
+                </button>
               </div>
             )}
           </div>
         </aside>
 
-        {/* ── Center ───────────────────────────────────────────────────── */}
+        {/* ── Center ────────────────────────────────────────────────────────── */}
         <section className="flex-1 min-w-0 flex flex-col bg-white/5 border border-white/50 rounded-2xl backdrop-blur-xl overflow-hidden px-4 sm:px-6 py-5 gap-5">
           <div className="flex-shrink-0">
             <h2 className="text-sm sm:text-base font-semibold">Your Hangout space</h2>
@@ -170,7 +196,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Go */}
+          {/* Go button */}
           <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-4">
             <Link to="/chat"
               className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white text-black text-xl sm:text-2xl font-semibold flex items-center justify-center hover:scale-105 hover:bg-gray-100 transition-transform shadow-[0_0_40px_rgba(255,255,255,0.25)]">
@@ -189,35 +215,43 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-[11px] text-gray-300 text-center">
-              {interests.length > 0 ? `Matching on: ${interests.map((i) => `#${i}`).join(" ")}` : "Ready to start a Hangout."}
+              {interests.length > 0
+                ? `Matching on: ${interests.map((i) => `#${i}`).join(" ")}`
+                : "Ready to start a Hangout."}
             </p>
           </div>
         </section>
 
-        {/* ── Right sidebar – Friends ───────────────────────────────────── */}
+        {/* ── Right sidebar – Friends ────────────────────────────────────────── */}
         <aside className="w-56 sm:w-64 flex-shrink-0 hidden md:flex flex-col bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
           <div className="flex-shrink-0 px-3 py-3 border-b border-white/10">
             <div className="text-xs font-semibold uppercase tracking-[0.2em]">Friends</div>
-            <div className="text-[11px] text-gray-400">Who's around right now</div>
+            <div className="text-[11px] text-gray-400">Mutual follows · click to chat</div>
           </div>
 
           {friends.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-[11px] text-gray-500 px-3 text-center">
-              No friends yet. Follow people to connect!
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[11px] text-gray-500 px-3 text-center">
+              <span className="text-2xl">🤝</span>
+              <p>No friends yet.</p>
+              <p className="text-[10px]">Follow people and when they follow back, you'll be friends!</p>
             </div>
           ) : (
             <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1">
               {friends.map((f, i) => {
                 const name = typeof f === "string" ? f : f.username || "User";
+                const initial = name[0]?.toUpperCase() || "U";
                 return (
-                  <div key={i} className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/10 transition">
-                    <div className="h-8 w-8 flex-shrink-0 rounded-full bg-white text-black flex items-center justify-center text-xs font-semibold">
-                      {name[0]?.toUpperCase() || "U"}
+                  <div key={i}
+                    className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/10 transition cursor-pointer group"
+                    onClick={() => startFriendChat(f)}>
+                    <div className="h-8 w-8 flex-shrink-0 rounded-full bg-white text-black flex items-center justify-center text-xs font-bold">
+                      {initial}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-semibold truncate">{name}</div>
+                      <div className="text-[10px] text-gray-500">Click to chat</div>
                     </div>
-                    <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-400" />
+                    <span className="text-gray-600 group-hover:text-white text-xs transition">→</span>
                   </div>
                 );
               })}
