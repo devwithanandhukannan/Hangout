@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
 import { signup } from "../api";
 import { useAuth } from "../AuthContext";
+import { useToastHelpers } from "../Toast";
 
 export default function SignupPage() {
   const navigate = useNavigate();
