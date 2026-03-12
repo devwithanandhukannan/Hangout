@@ -14,19 +14,25 @@ import {
   createContext, useContext, useCallback,
   useState, useEffect, useRef,
 } from "react";
-
+import { FaCheck } from "react-icons/fa";
+import { FcLike } from "react-icons/fc";
+import { RiUserFollowFill } from "react-icons/ri";
+import { IoIosInformationCircle } from "react-icons/io";
+import { IoCloseCircleSharp } from "react-icons/io5";
+import { IoIosWarning } from "react-icons/io";
+import { IoMdNotifications } from "react-icons/io";
 // ── Types / colours ────────────────────────────────────────────────────────
 const ICONS = {
-  success      : "✓",
-  error        : "✕",
-  info         : "ℹ",
-  warning      : "⚠",
-  follow       : "🤝",
-  like         : "❤️",
-  friend       : "🎉",
+  success      : <FaCheck/>,
+  error        : <IoCloseCircleSharp/>,
+  info         : <IoIosInformationCircle />,
+  warning      : <IoIosWarning/>,
+  follow       : <RiUserFollowFill />,
+  like         : <FcLike/>,
+  friend       : "",
   message      : "💬",
-  rank         : "★",
-  notification : "🔔",
+  rank         : "",
+  notification : <IoMdNotifications/>,
   chat_request : "💬",
 };
 

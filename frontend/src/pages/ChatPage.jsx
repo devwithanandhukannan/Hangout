@@ -13,6 +13,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth }   from "../AuthContext";
 import { useSocket } from "../SocketContext";
 import { useToastHelpers } from "../Toast";
+import { FaVideo } from "react-icons/fa";
+import { CgCamera, CgMic } from "react-icons/cg";
 
 const RTC_CONFIG = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
@@ -495,7 +497,7 @@ export default function ChatPage() {
   return (
     <div
       className="h-screen flex flex-col text-white antialiased overflow-hidden transition-colors duration-700"
-      style={{ backgroundColor: bgFlash ? "#1a0000" : "#000000" }}
+      style={{ backgroundColor: bgFlash ? "#cc0000" : "#000000" }}
     >
       {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
       <header className="flex-shrink-0 border-b border-white/10 bg-black/50 backdrop-blur-xl">
@@ -664,7 +666,7 @@ export default function ChatPage() {
                         </p>
                         <button onClick={startVideo}
                           className="px-6 py-2.5 rounded-full bg-white text-black text-sm font-semibold hover:bg-gray-200 transition">
-                          📹 Start Video Call
+                          Start Video Call
                         </button>
                       </>
                     )}
@@ -712,13 +714,13 @@ export default function ChatPage() {
                     className={`px-3 py-1.5 rounded-full border flex items-center gap-1.5 transition ${
                       micOn ? "bg-white text-black border-white" : "bg-white/10 text-white border-white/30"
                     }`}>
-                    🎙 {micOn ? "Mic on" : "Muted"}
+                    <CgMic/> {micOn ? "Mic on" : "Muted"}
                   </button>
                   <button onClick={toggleCam}
                     className={`px-3 py-1.5 rounded-full border flex items-center gap-1.5 transition ${
                       camOn ? "bg-white text-black border-white" : "bg-white/10 text-white border-white/30"
                     }`}>
-                    📹 {camOn ? "Cam on" : "Cam off"}
+                    <CgCamera/> {camOn ? "Cam on" : "Cam off"}
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
@@ -727,7 +729,7 @@ export default function ChatPage() {
                     disabled={chatStatus !== "chatting" || partnerId === myUserId}
                     title={liked ? "Unlike — removes heart from their rank" : "Like — adds to their rank!"}
                     className={`h-9 w-9 flex items-center justify-center rounded-full border transition text-sm ${
-                      liked ? "bg-red-500 border-red-500 text-white" : "border-gray-400 hover:bg-white hover:text-black"
+                      liked ? "bg-red-500 border-none text-white" : "border-gray-400 hover:bg-white hover:text-black"
                     } disabled:opacity-40`}
                   >
                     {liked ? "♥" : "♡"}
@@ -861,10 +863,6 @@ export default function ChatPage() {
           {/* Input bar */}
           <form onSubmit={handleSend} className="flex-shrink-0 mt-3 pt-3 border-t border-white/10">
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setUploadOpen(true)}
-                className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded-full border border-gray-700 hover:bg-gray-900 text-lg">
-                +
-              </button>
               <input
                 type="text"
                 placeholder={chatStatus === "chatting" ? "Type a message…" : "Connect to chat"}
