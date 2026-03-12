@@ -1,14 +1,19 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, Navigate } from "react-router-dom";
 import { signin } from "../api";
 import { useAuth } from "../AuthContext";
+import { useToastHelpers } from "../Toast";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { setUser } = useAuth();
+  const { setUser, user } = useAuth();
+  const toast = useToastHelpers();
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Already logged in → go to dashboard
+  if (user) return <Navigate to="/dashboard" replace />;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -17,9 +22,12 @@ export default function LoginPage() {
     try {
       const data = await signin({ username: form.username, password: form.password });
       setUser(data.user || data);
+      toast.success(`Welcome back, ${(data.user || data).username}!`);
       navigate("/dashboard");
     } catch (err) {
-      setError(err.message || "Login failed");
+      const msg = err.message || "Login failed";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
