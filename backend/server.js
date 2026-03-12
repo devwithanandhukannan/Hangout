@@ -18,6 +18,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const CLIENT_URL = process.env.CLIENT_URL;
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 // Middleware
 app.use(express.json());
@@ -31,7 +32,6 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-
 // Database connection
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('MongoDB connected'))
@@ -40,6 +40,22 @@ mongoose.connect(process.env.MONGODB_URI)
 // Store io reference globally for helper functions
 let ioInstance;
 
+// ─── Cookie helper ───────────────────────────────────────────
+// Single source of truth for cookie options.
+// When frontend is HTTPS and backend is HTTP behind a proxy,
+// OR when both are HTTPS, cookies need secure + sameSite config.
+function getCookieOptions() {
+    return {
+        httpOnly: true,
+        // 'none' allows cross-site (HTTPS frontend ↔ HTTP backend via proxy)
+        // 'lax' only works same-site
+        sameSite: IS_PROD ? 'none' : 'lax',
+        secure: IS_PROD,  // true when HTTPS in production
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: '/',
+    };
+}
+
 /*
 =================================================================
                     HELPER FUNCTIONS
@@ -47,8 +63,14 @@ let ioInstance;
 */
 
 // Send realtime notification
-async function sendRealtimeNotification(io, recipientId, senderId, type, message, referenceId = null, referenceModel = null) {
+async function sendRealtimeNotification(
+    io, recipientId, senderId, type, message,
+    referenceId = null, referenceModel = null
+) {
     try {
+        // Don't notify yourself
+        if (recipientId.toString() === senderId.toString()) return null;
+
         const notification = new Notification({
             recipientId,
             senderId,
@@ -87,6 +109,10 @@ async function sendRealtimeNotification(io, recipientId, senderId, type, message
 
 // Increase rank for a user
 async function increaseRank(io, myUserId, targetUserId) {
+    if (myUserId.toString() === targetUserId.toString()) {
+        throw { status: 400, message: 'Cannot rank yourself' };
+    }
+
     const user = await User.findById(targetUserId);
     if (!user) throw { status: 404, message: 'User not found' };
 
@@ -161,8 +187,11 @@ async function followUser(io, myUserId, targetUserId) {
     }
 
     // Check if blocked
-    if (toUser.blockedUsers.some(id => id.toString() === myUserId.toString())) {
+    if (toUser.blockedUsers?.some(id => id.toString() === myUserId.toString())) {
         throw { status: 403, message: 'You are blocked by this user' };
+    }
+    if (fromUser.blockedUsers?.some(id => id.toString() === targetUserId.toString())) {
+        throw { status: 403, message: 'You have blocked this user' };
     }
 
     const alreadyFollowing = fromUser.following
@@ -182,8 +211,8 @@ async function followUser(io, myUserId, targetUserId) {
         notificationType = 'unfollow';
         notificationMessage = 'unfollowed you';
     } else {
-        fromUser.following.push(targetUserId);
-        toUser.followers.push(myUserId);
+        fromUser.following.addToSet(targetUserId);
+        toUser.followers.addToSet(myUserId);
 
         message = 'Followed successfully';
         notificationType = 'follow';
@@ -226,7 +255,9 @@ async function followUser(io, myUserId, targetUserId) {
             username: fromUser.username,
             action: alreadyFollowing ? 'unfollowed' : 'followed',
             followersCount: toUser.followers.length,
-            isFriend: toUser.friends.some(id => id.toString() === myUserId.toString())
+            isFriend: toUser.friends.some(
+                id => id.toString() === myUserId.toString()
+            )
         });
     }
 
@@ -237,14 +268,18 @@ async function followUser(io, myUserId, targetUserId) {
             username: toUser.username,
             action: alreadyFollowing ? 'unfollowed' : 'followed',
             followingCount: fromUser.following.length,
-            isFriend: fromUser.friends.some(id => id.toString() === targetUserId.toString())
+            isFriend: fromUser.friends.some(
+                id => id.toString() === targetUserId.toString()
+            )
         });
     }
 
     return {
         targetUserId,
         message,
-        isFriend: fromUser.friends.some(id => id.toString() === targetUserId.toString())
+        isFriend: fromUser.friends.some(
+            id => id.toString() === targetUserId.toString()
+        )
     };
 }
 
@@ -301,8 +336,12 @@ async function togglePostReaction(io, userId, postId, reactionType) {
         likeCount: post.likeCount,
         dislikeCount: post.dislikeCount,
         action,
-        userLiked: post.likes.some(id => id.toString() === userId.toString()),
-        userDisliked: post.dislikes.some(id => id.toString() === userId.toString())
+        userLiked: post.likes.some(
+            id => id.toString() === userId.toString()
+        ),
+        userDisliked: post.dislikes.some(
+            id => id.toString() === userId.toString()
+        )
     };
 }
 
@@ -313,11 +352,19 @@ async function calculateMatchScore(userId1, userId2) {
         User.findById(userId2).select('interests rank blockedUsers')
     ]);
 
-    if (!user1 || !user2) return { score: 0, commonInterests: [], matchType: 'random' };
+    if (!user1 || !user2) {
+        return { score: 0, commonInterests: [], matchType: 'random' };
+    }
 
     // Check blocked
-    if (user1.blockedUsers.some(id => id.toString() === userId2.toString()) ||
-        user2.blockedUsers.some(id => id.toString() === userId1.toString())) {
+    if (
+        user1.blockedUsers?.some(
+            id => id.toString() === userId2.toString()
+        ) ||
+        user2.blockedUsers?.some(
+            id => id.toString() === userId1.toString()
+        )
+    ) {
         return { score: -1, commonInterests: [], matchType: 'blocked' };
     }
 
@@ -335,13 +382,15 @@ async function calculateMatchScore(userId1, userId2) {
     }
 
     // Rank-based matching (weight: rank difference penalty)
-    // Users with similar ranks get higher scores
-    const rankDiff = Math.abs((user1.rank?.count || 0) - (user2.rank?.count || 0));
+    const rankDiff = Math.abs(
+        (user1.rank?.count || 0) - (user2.rank?.count || 0)
+    );
     const rankBonus = Math.max(0, 30 - rankDiff * 2);
     score += rankBonus;
 
-    // Combined rank bonus (higher combined rank = slightly better match)
-    const combinedRank = (user1.rank?.count || 0) + (user2.rank?.count || 0);
+    // Combined rank bonus
+    const combinedRank =
+        (user1.rank?.count || 0) + (user2.rank?.count || 0);
     score += Math.min(20, combinedRank * 2);
 
     if (score > 0 && matchType === 'random') {
@@ -351,7 +400,9 @@ async function calculateMatchScore(userId1, userId2) {
     // Check match history - penalize repeated matches
     const recentMatches = await MatchHistory.countDocuments({
         users: { $all: [userId1, userId2] },
-        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+        createdAt: {
+            $gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
+        }
     });
     score -= recentMatches * 30;
 
@@ -369,11 +420,15 @@ app.post('/signup', async (req, res) => {
         const { username, password, email } = req.body;
 
         if (!username || !password || !email) {
-            return res.status(400).json({ message: 'All fields are required' });
+            return res.status(400).json({
+                message: 'All fields are required'
+            });
         }
 
         if (password.length < 6) {
-            return res.status(400).json({ message: 'Password must be at least 6 characters' });
+            return res.status(400).json({
+                message: 'Password must be at least 6 characters'
+            });
         }
 
         const existingUser = await User.findOne({
@@ -382,9 +437,10 @@ app.post('/signup', async (req, res) => {
 
         if (existingUser) {
             return res.status(400).json({
-                message: existingUser.username === username
-                    ? 'Username exists'
-                    : 'Email exists'
+                message:
+                    existingUser.username === username
+                        ? 'Username exists'
+                        : 'Email exists'
             });
         }
 
@@ -392,7 +448,7 @@ app.post('/signup', async (req, res) => {
         const user = new User({
             username,
             email,
-            password: hashedPassword,
+            password: hashedPassword
         });
         await user.save();
 
@@ -402,21 +458,18 @@ app.post('/signup', async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        res.cookie('hangout', token, {
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: false,
-            maxAge: 7 * 24 * 60 * 60 * 1000
-        }).status(201).json({
-            message: 'Account created',
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                interests: user.interests,
-                rank: user.rank.count
-            }
-        });
+        res.cookie('hangout', token, getCookieOptions())
+            .status(201)
+            .json({
+                message: 'Account created',
+                user: {
+                    id: user._id,
+                    username: user.username,
+                    email: user.email,
+                    interests: user.interests,
+                    rank: user.rank.count
+                }
+            });
     } catch (error) {
         console.error('Signup error:', error);
         res.status(500).json({ message: 'Server error' });
@@ -446,12 +499,7 @@ app.post('/signin', async (req, res) => {
         user.lastSeen = new Date();
         await user.save();
 
-        res.cookie('hangout', token, {
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: false,
-            maxAge: 7 * 24 * 60 * 60 * 1000
-        }).json({
+        res.cookie('hangout', token, getCookieOptions()).json({
             message: 'Logged in',
             user: {
                 id: user._id,
@@ -476,9 +524,10 @@ app.post('/logout', authMiddleware, async (req, res) => {
 
         res.cookie('hangout', '', {
             httpOnly: true,
-            secure: false,
+            sameSite: IS_PROD ? 'none' : 'lax',
+            secure: IS_PROD,
             expires: new Date(0),
-            path: '/',
+            path: '/'
         });
 
         res.status(200).json({ message: 'Logout successful' });
@@ -499,7 +548,9 @@ app.post('/post', authMiddleware, async (req, res) => {
         const userId = req.userId;
 
         if (!content || content.trim().length === 0) {
-            return res.status(400).json({ message: 'Content is required' });
+            return res.status(400).json({
+                message: 'Content is required'
+            });
         }
 
         const post = new Post({
@@ -510,16 +561,21 @@ app.post('/post', authMiddleware, async (req, res) => {
         await post.save();
 
         // Notify all followers about new post
-        const user = await User.findById(userId).select('followers username');
+        const user = await User.findById(userId).select(
+            'followers username'
+        );
         if (user && user.followers.length > 0) {
             const notificationPromises = user.followers.map(followerId =>
                 sendRealtimeNotification(
-                    ioInstance, followerId, userId, 'post_by_following',
+                    ioInstance,
+                    followerId,
+                    userId,
+                    'post_by_following',
                     `${user.username} published a new post`,
-                    post._id, 'Post'
+                    post._id,
+                    'Post'
                 )
             );
-            // Fire and forget - don't block response
             Promise.all(notificationPromises).catch(err =>
                 console.error('Post notification error:', err)
             );
@@ -556,7 +612,10 @@ app.delete('/delete-post/:postId', authMiddleware, async (req, res) => {
         }
 
         await Comment.deleteMany({ postId });
-        await Notification.deleteMany({ referenceId: postId, referenceModel: 'Post' });
+        await Notification.deleteMany({
+            referenceId: postId,
+            referenceModel: 'Post'
+        });
         await Post.findByIdAndDelete(postId);
 
         res.status(200).json({ message: 'Post deleted' });
@@ -576,8 +635,12 @@ app.get('/posts', authMiddleware, async (req, res) => {
 
         const postsWithReaction = posts.map(post => ({
             ...post.toObject(),
-            userLiked: post.likes.some(id => id.toString() === userId),
-            userDisliked: post.dislikes.some(id => id.toString() === userId)
+            userLiked: post.likes.some(
+                id => id.toString() === userId
+            ),
+            userDisliked: post.dislikes.some(
+                id => id.toString() === userId
+            )
         }));
 
         res.status(200).json(postsWithReaction);
@@ -591,7 +654,10 @@ app.get('/posts', authMiddleware, async (req, res) => {
 app.patch('/post/:postId/like', authMiddleware, async (req, res) => {
     try {
         const result = await togglePostReaction(
-            ioInstance, req.userId, req.params.postId, 'like'
+            ioInstance,
+            req.userId,
+            req.params.postId,
+            'like'
         );
         res.status(200).json(result);
     } catch (error) {
@@ -606,7 +672,10 @@ app.patch('/post/:postId/like', authMiddleware, async (req, res) => {
 app.patch('/post/:postId/dislike', authMiddleware, async (req, res) => {
     try {
         const result = await togglePostReaction(
-            ioInstance, req.userId, req.params.postId, 'dislike'
+            ioInstance,
+            req.userId,
+            req.params.postId,
+            'dislike'
         );
         res.status(200).json(result);
     } catch (error) {
@@ -617,21 +686,22 @@ app.patch('/post/:postId/dislike', authMiddleware, async (req, res) => {
     }
 });
 
-// Get a specific user's posts (for viewing following users' posts)
+// Get a specific user's posts
 app.get('/posts/user/:userId', authMiddleware, async (req, res) => {
     try {
         const targetUserId = req.params.userId;
         const myUserId = req.userId;
 
-        // Check if following or it's own profile
         if (targetUserId !== myUserId) {
             const me = await User.findById(myUserId).select('following');
-            const isFollowing = me.following
-                .some(id => id.toString() === targetUserId);
+            const isFollowing = me.following.some(
+                id => id.toString() === targetUserId
+            );
 
             if (!isFollowing) {
                 return res.status(403).json({
-                    message: 'You need to follow this user to see their posts'
+                    message:
+                        'You need to follow this user to see their posts'
                 });
             }
         }
@@ -642,8 +712,12 @@ app.get('/posts/user/:userId', authMiddleware, async (req, res) => {
 
         const postsWithReaction = posts.map(post => ({
             ...post.toObject(),
-            userLiked: post.likes.some(id => id.toString() === myUserId),
-            userDisliked: post.dislikes.some(id => id.toString() === myUserId)
+            userLiked: post.likes.some(
+                id => id.toString() === myUserId
+            ),
+            userDisliked: post.dislikes.some(
+                id => id.toString() === myUserId
+            )
         }));
 
         res.status(200).json(postsWithReaction);
@@ -665,10 +739,16 @@ app.get('/feed', authMiddleware, async (req, res) => {
         const limit = parseInt(req.query.limit) || 20;
         const skip = (page - 1) * limit;
 
-        const userObj = await User.findById(req.userId).select('following');
+        const userObj = await User.findById(req.userId).select(
+            'following'
+        );
 
         if (!userObj || userObj.following.length === 0) {
-            return res.json({ posts: [], message: 'Follow users to see their posts', hasMore: false });
+            return res.json({
+                posts: [],
+                message: 'Follow users to see their posts',
+                hasMore: false
+            });
         }
 
         const followingIds = [...userObj.following, req.userId];
@@ -684,8 +764,12 @@ app.get('/feed', authMiddleware, async (req, res) => {
 
         const postsWithReaction = posts.map(post => ({
             ...post.toObject(),
-            userLiked: post.likes.some(id => id.toString() === req.userId),
-            userDisliked: post.dislikes.some(id => id.toString() === req.userId)
+            userLiked: post.likes.some(
+                id => id.toString() === req.userId
+            ),
+            userDisliked: post.dislikes.some(
+                id => id.toString() === req.userId
+            )
         }));
 
         res.json({
@@ -712,7 +796,9 @@ app.post('/comment', authMiddleware, async (req, res) => {
         const userId = req.userId;
 
         if (!content || content.trim().length === 0) {
-            return res.status(400).json({ message: 'Content is required' });
+            return res.status(400).json({
+                message: 'Content is required'
+            });
         }
 
         const post = await Post.findById(postId);
@@ -731,9 +817,13 @@ app.post('/comment', authMiddleware, async (req, res) => {
         // Notify post owner
         if (post.userId.toString() !== userId) {
             await sendRealtimeNotification(
-                ioInstance, post.userId, userId, 'comment',
+                ioInstance,
+                post.userId,
+                userId,
+                'comment',
                 'commented on your post 💬',
-                postId, 'Post'
+                postId,
+                'Post'
             );
         }
 
@@ -754,29 +844,39 @@ app.post('/comment', authMiddleware, async (req, res) => {
     }
 });
 
-app.delete('/delete-comment/:commentId', authMiddleware, async (req, res) => {
-    try {
-        const { commentId } = req.params;
-        const userId = req.userId;
+app.delete(
+    '/delete-comment/:commentId',
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const { commentId } = req.params;
+            const userId = req.userId;
 
-        const comment = await Comment.findById(commentId);
-        if (!comment) {
-            return res.status(404).json({ message: 'Comment not found' });
+            const comment = await Comment.findById(commentId);
+            if (!comment) {
+                return res.status(404).json({
+                    message: 'Comment not found'
+                });
+            }
+
+            const post = await Post.findById(comment.postId);
+            if (
+                comment.userId.toString() !== userId &&
+                post?.userId.toString() !== userId
+            ) {
+                return res.status(403).json({
+                    message: 'Not authorized'
+                });
+            }
+
+            await Comment.findByIdAndDelete(commentId);
+            res.status(200).json({ message: 'Comment deleted' });
+        } catch (error) {
+            console.error('Delete comment error:', error);
+            res.status(500).json({ message: 'Server error' });
         }
-
-        // Allow comment owner or post owner to delete
-        const post = await Post.findById(comment.postId);
-        if (comment.userId.toString() !== userId && post?.userId.toString() !== userId) {
-            return res.status(403).json({ message: 'Not authorized' });
-        }
-
-        await Comment.findByIdAndDelete(commentId);
-        res.status(200).json({ message: 'Comment deleted' });
-    } catch (error) {
-        console.error('Delete comment error:', error);
-        res.status(500).json({ message: 'Server error' });
     }
-});
+);
 
 app.get('/comments/:postId', authMiddleware, async (req, res) => {
     try {
@@ -787,7 +887,9 @@ app.get('/comments/:postId', authMiddleware, async (req, res) => {
 
         const commentsWithLike = comments.map(c => ({
             ...c.toObject(),
-            userLiked: c.likes.some(id => id.toString() === req.userId),
+            userLiked: c.likes.some(
+                id => id.toString() === req.userId
+            ),
             likeCount: c.likes.length
         }));
 
@@ -799,42 +901,55 @@ app.get('/comments/:postId', authMiddleware, async (req, res) => {
 });
 
 // Like a comment
-app.patch('/comment/:commentId/like', authMiddleware, async (req, res) => {
-    try {
-        const comment = await Comment.findById(req.params.commentId);
-        if (!comment) {
-            return res.status(404).json({ message: 'Comment not found' });
-        }
-
-        const alreadyLiked = comment.likes
-            .some(id => id.toString() === req.userId);
-
-        if (alreadyLiked) {
-            comment.likes.pull(req.userId);
-        } else {
-            comment.likes.addToSet(req.userId);
-
-            if (comment.userId.toString() !== req.userId) {
-                await sendRealtimeNotification(
-                    ioInstance, comment.userId, req.userId, 'like_comment',
-                    'liked your comment',
-                    comment.postId, 'Post'
-                );
+app.patch(
+    '/comment/:commentId/like',
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const comment = await Comment.findById(
+                req.params.commentId
+            );
+            if (!comment) {
+                return res.status(404).json({
+                    message: 'Comment not found'
+                });
             }
+
+            const alreadyLiked = comment.likes.some(
+                id => id.toString() === req.userId
+            );
+
+            if (alreadyLiked) {
+                comment.likes.pull(req.userId);
+            } else {
+                comment.likes.addToSet(req.userId);
+
+                if (comment.userId.toString() !== req.userId) {
+                    await sendRealtimeNotification(
+                        ioInstance,
+                        comment.userId,
+                        req.userId,
+                        'like_comment',
+                        'liked your comment',
+                        comment.postId,
+                        'Post'
+                    );
+                }
+            }
+
+            await comment.save();
+
+            res.status(200).json({
+                commentId: comment._id,
+                likeCount: comment.likes.length,
+                userLiked: !alreadyLiked
+            });
+        } catch (error) {
+            console.error('Like comment error:', error);
+            res.status(500).json({ message: 'Server error' });
         }
-
-        await comment.save();
-
-        res.status(200).json({
-            commentId: comment._id,
-            likeCount: comment.likes.length,
-            userLiked: !alreadyLiked
-        });
-    } catch (error) {
-        console.error('Like comment error:', error);
-        res.status(500).json({ message: 'Server error' });
     }
-});
+);
 
 /*
 =================================================================
@@ -848,7 +963,10 @@ app.get('/profile', authMiddleware, async (req, res) => {
 
         const user = await User.findById(userId)
             .select('-password -blockedUsers')
-            .populate('followers following friends', 'username avatar rank isOnline');
+            .populate(
+                'followers following friends',
+                'username avatar rank isOnline'
+            );
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
@@ -874,22 +992,31 @@ app.get('/user/:userId', authMiddleware, async (req, res) => {
 
         const user = await User.findById(targetUserId)
             .select('-password -blockedUsers -email')
-            .populate('followers following friends', 'username avatar rank isOnline');
+            .populate(
+                'followers following friends',
+                'username avatar rank isOnline'
+            );
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const postCount = await Post.countDocuments({ userId: targetUserId });
+        const postCount = await Post.countDocuments({
+            userId: targetUserId
+        });
 
-        const isFollowing = user.followers
-            .some(f => f._id.toString() === myUserId);
-        const isFollower = user.following
-            .some(f => f._id.toString() === myUserId);
-        const isFriend = user.friends
-            .some(f => f._id.toString() === myUserId);
-        const hasRanked = user.rank.voters
-            .some(id => id.toString() === myUserId);
+        const isFollowing = user.followers.some(
+            f => f._id.toString() === myUserId
+        );
+        const isFollower = user.following.some(
+            f => f._id.toString() === myUserId
+        );
+        const isFriend = user.friends.some(
+            f => f._id.toString() === myUserId
+        );
+        const hasRanked = user.rank.voters.some(
+            id => id.toString() === myUserId
+        );
 
         res.status(200).json({
             ...user.toObject(),
@@ -927,24 +1054,29 @@ app.patch('/update_profile', authMiddleware, async (req, res) => {
 
         // Check username/email uniqueness
         if (username || email) {
+            const orConditions = [];
+            if (username) orConditions.push({ username });
+            if (email) orConditions.push({ email });
+
             const existing = await User.findOne({
                 _id: { $ne: userId },
-                $or: [
-                    ...(username ? [{ username }] : []),
-                    ...(email ? [{ email }] : [])
-                ]
+                $or: orConditions
             });
             if (existing) {
                 return res.status(400).json({
-                    message: existing.username === username
-                        ? 'Username taken'
-                        : 'Email taken'
+                    message:
+                        existing.username === username
+                            ? 'Username taken'
+                            : 'Email taken'
                 });
             }
         }
 
-        const userobj = await User.findByIdAndUpdate(userId, updateData, { new: true })
-            .select('-password');
+        const userobj = await User.findByIdAndUpdate(
+            userId,
+            updateData,
+            { new: true }
+        ).select('-password');
 
         if (!userobj) {
             return res.status(400).json({ message: 'User not found' });
@@ -962,7 +1094,9 @@ app.get('/search/users', authMiddleware, async (req, res) => {
     try {
         const { q } = req.query;
         if (!q || q.trim().length < 2) {
-            return res.status(400).json({ message: 'Query must be at least 2 characters' });
+            return res.status(400).json({
+                message: 'Query must be at least 2 characters'
+            });
         }
 
         const users = await User.find({
@@ -976,7 +1110,9 @@ app.get('/search/users', authMiddleware, async (req, res) => {
 
         const results = users.map(u => ({
             ...u.toObject(),
-            isFollowing: me.following.some(id => id.toString() === u._id.toString())
+            isFollowing: me.following.some(
+                id => id.toString() === u._id.toString()
+            )
         }));
 
         res.status(200).json(results);
@@ -1012,7 +1148,16 @@ app.get('/leaderboard', authMiddleware, async (req, res) => {
 app.patch('/follow', authMiddleware, async (req, res) => {
     try {
         const { target_user_id } = req.body;
-        const result = await followUser(ioInstance, req.userId, target_user_id);
+        if (!target_user_id) {
+            return res.status(400).json({
+                message: 'target_user_id is required'
+            });
+        }
+        const result = await followUser(
+            ioInstance,
+            req.userId,
+            target_user_id
+        );
         res.status(200).json(result);
     } catch (error) {
         console.error('Follow error:', error);
@@ -1025,7 +1170,16 @@ app.patch('/follow', authMiddleware, async (req, res) => {
 app.patch('/unfollow', authMiddleware, async (req, res) => {
     try {
         const { unfollow_user_id } = req.body;
-        const result = await followUser(ioInstance, req.userId, unfollow_user_id);
+        if (!unfollow_user_id) {
+            return res.status(400).json({
+                message: 'unfollow_user_id is required'
+            });
+        }
+        const result = await followUser(
+            ioInstance,
+            req.userId,
+            unfollow_user_id
+        );
         res.status(200).json(result);
     } catch (error) {
         console.error('Unfollow error:', error);
@@ -1038,7 +1192,16 @@ app.patch('/unfollow', authMiddleware, async (req, res) => {
 app.patch('/remove_follower', authMiddleware, async (req, res) => {
     try {
         const { follower_user_id } = req.body;
-        const result = await followUser(ioInstance, follower_user_id, req.userId);
+        if (!follower_user_id) {
+            return res.status(400).json({
+                message: 'follower_user_id is required'
+            });
+        }
+        const result = await followUser(
+            ioInstance,
+            follower_user_id,
+            req.userId
+        );
         res.status(200).json(result);
     } catch (error) {
         console.error('Remove follower error:', error);
@@ -1052,7 +1215,9 @@ app.patch('/remove_follower', authMiddleware, async (req, res) => {
 app.patch('/rank/:userId', authMiddleware, async (req, res) => {
     try {
         const result = await increaseRank(
-            ioInstance, req.userId, req.params.userId
+            ioInstance,
+            req.userId,
+            req.params.userId
         );
         res.status(200).json(result);
     } catch (error) {
@@ -1070,12 +1235,21 @@ app.patch('/block/:userId', authMiddleware, async (req, res) => {
         const myUserId = req.userId;
 
         if (myUserId === targetUserId) {
-            return res.status(400).json({ message: 'Cannot block yourself' });
+            return res.status(400).json({
+                message: 'Cannot block yourself'
+            });
         }
 
         const me = await User.findById(myUserId);
-        const isBlocked = me.blockedUsers
-            .some(id => id.toString() === targetUserId);
+        if (!me) {
+            return res.status(404).json({
+                message: 'User not found'
+            });
+        }
+
+        const isBlocked = me.blockedUsers.some(
+            id => id.toString() === targetUserId
+        );
 
         if (isBlocked) {
             me.blockedUsers.pull(targetUserId);
@@ -1117,18 +1291,21 @@ app.get('/notifications', authMiddleware, async (req, res) => {
         const limit = parseInt(req.query.limit) || 30;
         const skip = (page - 1) * limit;
 
-        const [notifications, unreadCount, totalCount] = await Promise.all([
-            Notification.find({ recipientId: req.userId })
-                .populate('senderId', 'username avatar')
-                .sort({ createdAt: -1 })
-                .skip(skip)
-                .limit(limit),
-            Notification.countDocuments({
-                recipientId: req.userId,
-                isRead: false
-            }),
-            Notification.countDocuments({ recipientId: req.userId })
-        ]);
+        const [notifications, unreadCount, totalCount] =
+            await Promise.all([
+                Notification.find({ recipientId: req.userId })
+                    .populate('senderId', 'username avatar')
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit),
+                Notification.countDocuments({
+                    recipientId: req.userId,
+                    isRead: false
+                }),
+                Notification.countDocuments({
+                    recipientId: req.userId
+                })
+            ]);
 
         res.status(200).json({
             notifications,
@@ -1155,42 +1332,55 @@ app.patch('/notifications/read', authMiddleware, async (req, res) => {
                 { isRead: true }
             );
         } else {
-            // Mark all as read
             await Notification.updateMany(
                 { recipientId: req.userId, isRead: false },
                 { isRead: true }
             );
         }
 
-        res.status(200).json({ message: 'Notifications marked as read' });
+        res.status(200).json({
+            message: 'Notifications marked as read'
+        });
     } catch (error) {
         console.error('Mark read error:', error);
         res.status(500).json({ message: 'Server error' });
     }
 });
 
-app.delete('/notifications/clear', authMiddleware, async (req, res) => {
-    try {
-        await Notification.deleteMany({ recipientId: req.userId });
-        res.status(200).json({ message: 'Notifications cleared' });
-    } catch (error) {
-        console.error('Clear notifications error:', error);
-        res.status(500).json({ message: 'Server error' });
+app.delete(
+    '/notifications/clear',
+    authMiddleware,
+    async (req, res) => {
+        try {
+            await Notification.deleteMany({
+                recipientId: req.userId
+            });
+            res.status(200).json({
+                message: 'Notifications cleared'
+            });
+        } catch (error) {
+            console.error('Clear notifications error:', error);
+            res.status(500).json({ message: 'Server error' });
+        }
     }
-});
+);
 
-app.get('/notifications/unread-count', authMiddleware, async (req, res) => {
-    try {
-        const count = await Notification.countDocuments({
-            recipientId: req.userId,
-            isRead: false
-        });
-        res.status(200).json({ unreadCount: count });
-    } catch (error) {
-        console.error('Unread count error:', error);
-        res.status(500).json({ message: 'Server error' });
+app.get(
+    '/notifications/unread-count',
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const count = await Notification.countDocuments({
+                recipientId: req.userId,
+                isRead: false
+            });
+            res.status(200).json({ unreadCount: count });
+        } catch (error) {
+            console.error('Unread count error:', error);
+            res.status(500).json({ message: 'Server error' });
+        }
     }
-});
+);
 
 /*
 =================================================================
@@ -1203,10 +1393,13 @@ app.post('/save-chat', authMiddleware, async (req, res) => {
         const { partnerId, chatData } = req.body;
 
         if (!partnerId || !chatData) {
-            return res.status(400).json({ message: "Missing required data" });
+            return res.status(400).json({
+                message: 'Missing required data'
+            });
         }
 
-        const userId = req.user._id;
+        // FIX: use req.userId consistently (not req.user._id)
+        const userId = req.userId;
 
         const newChat = new Chat({
             users: [userId, partnerId],
@@ -1217,19 +1410,19 @@ app.post('/save-chat', authMiddleware, async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            message: "Chat saved successfully",
+            message: 'Chat saved successfully',
             chatId: newChat._id
         });
     } catch (error) {
-        console.error("Save chat error:", error);
+        console.error('Save chat error:', error);
         return res.status(500).json({
             success: false,
-            message: "Failed to save chat"
+            message: 'Failed to save chat'
         });
     }
 });
 
-app.delete("/chat/:chatid", authMiddleware, async (req, res) => {
+app.delete('/chat/:chatid', authMiddleware, async (req, res) => {
     try {
         const { chatid } = req.params;
         const deletedChat = await Chat.findOneAndDelete({
@@ -1240,24 +1433,24 @@ app.delete("/chat/:chatid", authMiddleware, async (req, res) => {
         if (!deletedChat) {
             return res.status(404).json({
                 success: false,
-                message: "Chat not found"
+                message: 'Chat not found'
             });
         }
 
         res.status(200).json({
             success: true,
-            message: "Chat deleted successfully"
+            message: 'Chat deleted successfully'
         });
     } catch (error) {
-        console.error("Delete chat error:", error);
+        console.error('Delete chat error:', error);
         res.status(500).json({
             success: false,
-            message: "Failed to delete chat"
+            message: 'Failed to delete chat'
         });
     }
 });
 
-app.get("/chats", authMiddleware, async (req, res) => {
+app.get('/chats', authMiddleware, async (req, res) => {
     try {
         const userId = req.userId;
         const chats = await Chat.find({ users: userId })
@@ -1269,10 +1462,10 @@ app.get("/chats", authMiddleware, async (req, res) => {
             chats
         });
     } catch (error) {
-        console.error("Get chats error:", error);
+        console.error('Get chats error:', error);
         res.status(500).json({
             success: false,
-            message: "Failed to fetch chats"
+            message: 'Failed to fetch chats'
         });
     }
 });
@@ -1288,7 +1481,9 @@ app.patch('/interests', authMiddleware, async (req, res) => {
         const { interest } = req.body;
         const user = await User.findById(req.userId);
         if (!user) {
-            return res.status(400).json({ message: 'Cannot find user' });
+            return res.status(400).json({
+                message: 'Cannot find user'
+            });
         }
 
         if (Array.isArray(interest)) {
@@ -1307,7 +1502,9 @@ app.patch('/interests', authMiddleware, async (req, res) => {
 
 app.get('/interests', authMiddleware, async (req, res) => {
     try {
-        const user = await User.findById(req.userId).select('interests');
+        const user = await User.findById(req.userId).select(
+            'interests'
+        );
         res.status(200).json({ interests: user.interests });
     } catch (error) {
         console.error('Get interests error:', error);
@@ -1323,7 +1520,9 @@ app.get('/interests', authMiddleware, async (req, res) => {
 
 app.get('/match-history', authMiddleware, async (req, res) => {
     try {
-        const matches = await MatchHistory.find({ users: req.userId })
+        const matches = await MatchHistory.find({
+            users: req.userId
+        })
             .populate('users', 'username avatar rank')
             .sort({ createdAt: -1 })
             .limit(50);
@@ -1343,16 +1542,16 @@ app.get('/match-history', authMiddleware, async (req, res) => {
 
 app.get('/suggested-users', authMiddleware, async (req, res) => {
     try {
-        const me = await User.findById(req.userId)
-            .select('following interests blockedUsers');
+        const me = await User.findById(req.userId).select(
+            'following interests blockedUsers'
+        );
 
         const excludeIds = [
             req.userId,
             ...me.following.map(id => id.toString()),
-            ...me.blockedUsers.map(id => id.toString())
+            ...(me.blockedUsers || []).map(id => id.toString())
         ];
 
-        // Find users with common interests, sorted by rank
         let query = { _id: { $nin: excludeIds } };
 
         if (me.interests.length > 0) {
@@ -1375,7 +1574,6 @@ app.get('/suggested-users', authMiddleware, async (req, res) => {
             };
         });
 
-        // Sort by common interests first, then rank
         suggestions.sort((a, b) => {
             if (b.commonCount !== a.commonCount) {
                 return b.commonCount - a.commonCount;
@@ -1400,9 +1598,9 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
         origin: (origin, callback) => {
-            callback(null, true);   // accept ANY origin
+            callback(null, true);
         },
-        methods: ["GET", "POST"],
+        methods: ['GET', 'POST'],
         credentials: true
     },
     pingInterval: 10000,
@@ -1415,56 +1613,173 @@ ioInstance = io;
 
 io.use(socketAuthMiddleware);
 
-io.on("connection", async (socket) => {
-    console.log("User connected:", socket.userId, socket.id);
+io.on('connection', async socket => {
+    console.log('User connected:', socket.userId, socket.id);
     activeUsers.set(socket.userId, socket.id);
 
     // Update online status
-    await User.findByIdAndUpdate(socket.userId, {
-        isOnline: true,
-        lastSeen: new Date()
-    });
-
-    // Notify friends that user is online
-    const user = await User.findById(socket.userId).select('friends username');
-    if (user && user.friends.length > 0) {
-        user.friends.forEach(friendId => {
-            const friendSocketId = activeUsers.get(friendId.toString());
-            if (friendSocketId) {
-                io.to(friendSocketId).emit('userOnline', {
-                    userId: socket.userId,
-                    username: user.username
-                });
-            }
+    try {
+        await User.findByIdAndUpdate(socket.userId, {
+            isOnline: true,
+            lastSeen: new Date()
         });
+
+        // Notify friends that user is online
+        const user = await User.findById(socket.userId).select(
+            'friends username'
+        );
+        if (user && user.friends.length > 0) {
+            user.friends.forEach(friendId => {
+                const friendSocketId = activeUsers.get(
+                    friendId.toString()
+                );
+                if (friendSocketId) {
+                    io.to(friendSocketId).emit('userOnline', {
+                        userId: socket.userId,
+                        username: user.username
+                    });
+                }
+            });
+        }
+
+        // Send unread notification count on connect
+        const unreadCount = await Notification.countDocuments({
+            recipientId: socket.userId,
+            isRead: false
+        });
+        socket.emit('unreadNotifications', { count: unreadCount });
+    } catch (error) {
+        console.error('Connection setup error:', error);
     }
 
-    // Send unread notification count on connect
-    const unreadCount = await Notification.countDocuments({
-        recipientId: socket.userId,
-        isRead: false
-    });
-    socket.emit('unreadNotifications', { count: unreadCount });
+    // =====================================================
+    //                  SOCKET EVENTS
+    // =====================================================
 
-    // ---- Socket Events ----
-
-    socket.on("getInterests", async () => {
+    socket.on('getInterests', async () => {
         try {
-            const user = await User.findById(socket.userId).select('interests');
-            socket.emit("interests", user.interests || []);
+            const user = await User.findById(socket.userId).select(
+                'interests'
+            );
+            socket.emit('interests', user?.interests || []);
         } catch (error) {
-            console.error("Get interests socket error:", error);
+            console.error('Get interests socket error:', error);
         }
     });
 
-    // Advanced matching with rank + interest algorithm
-    socket.on("findChat", async () => {
+    // ─── Direct Chat: Request ────────────────────────────
+    socket.on('directChatRequest', ({ toId, room }) => {
+        try {
+            const toSocketId = activeUsers.get(toId);
+
+            if (!toSocketId) {
+                socket.emit('directChatUserOffline', { toId });
+                return;
+            }
+
+            io.to(toSocketId).emit('directChatRequest', {
+                fromId: socket.userId,
+                fromName: socket.username || 'A friend',
+                room
+            });
+
+            console.log(
+                `[Direct] ${socket.userId} → ${toId} room: ${room}`
+            );
+        } catch (err) {
+            console.error('directChatRequest error:', err);
+        }
+    });
+
+    // ─── Direct Chat: Accept ─────────────────────────────
+    socket.on('directChatAccept', ({ toId, room }) => {
+        try {
+            const toSocketId = activeUsers.get(toId);
+
+            // Join both sockets into the room
+            socket.join(room);
+            if (toSocketId) {
+                io.sockets.sockets.get(toSocketId)?.join(room);
+            }
+
+            // Mark both as busy
+            busyUsers.add(socket.userId);
+            busyUsers.add(toId);
+
+            const chatStartedPayload = {
+                room,
+                matchType: 'direct',
+                commonInterests: [],
+                matchScore: 0
+            };
+
+            // Tell requester (toId) chat has started
+            if (toSocketId) {
+                io.to(toSocketId).emit('chatStarted', {
+                    ...chatStartedPayload,
+                    partnerId: socket.userId
+                });
+            }
+
+            // Tell accepter (this socket) chat has started
+            socket.emit('chatStarted', {
+                ...chatStartedPayload,
+                partnerId: toId
+            });
+
+            console.log(`[Direct] accepted — room: ${room}`);
+        } catch (err) {
+            console.error('directChatAccept error:', err);
+        }
+    });
+
+    // ─── Direct Chat: Decline ────────────────────────────
+    socket.on('directChatDecline', ({ toId, room }) => {
+        try {
+            const toSocketId = activeUsers.get(toId);
+            if (toSocketId) {
+                io.to(toSocketId).emit('directChatDeclined', {
+                    byName: socket.username || 'Friend',
+                    byId: socket.userId,
+                    room
+                });
+            }
+            console.log(
+                `[Direct] declined by ${socket.userId}`
+            );
+        } catch (err) {
+            console.error('directChatDecline error:', err);
+        }
+    });
+
+    // ─── Direct Chat: Cancel ─────────────────────────────
+    socket.on('directChatCancel', ({ toId, room }) => {
+        try {
+            const toSocketId = activeUsers.get(toId);
+            if (toSocketId) {
+                io.to(toSocketId).emit('directChatCancelled', {
+                    byName: socket.username || 'Friend',
+                    byId: socket.userId,
+                    room
+                });
+            }
+            console.log(
+                `[Direct] cancelled by ${socket.userId}`
+            );
+        } catch (err) {
+            console.error('directChatCancel error:', err);
+        }
+    });
+
+    // ─── Random / Interest / Rank Matching ───────────────
+    socket.on('findChat', async () => {
         if (busyUsers.has(socket.userId)) return;
 
         try {
-            const user = await User.findById(socket.userId)
-                .select('interests rank blockedUsers');
-            const userInterests = user.interests || [];
+            const user = await User.findById(socket.userId).select(
+                'interests rank blockedUsers'
+            );
+            const userInterests = user?.interests || [];
 
             // Calculate scores for all waiting users
             let bestMatch = null;
@@ -1498,13 +1813,16 @@ io.on("connection", async (socket) => {
                 waitingQueue.splice(bestIndex, 1);
 
                 const room = [socket.userId, bestMatch.userId]
-                    .sort().join("_");
+                    .sort()
+                    .join('_');
 
                 busyUsers.add(socket.userId);
                 busyUsers.add(bestMatch.userId);
 
                 socket.join(room);
-                const partnerSocketId = activeUsers.get(bestMatch.userId);
+                const partnerSocketId = activeUsers.get(
+                    bestMatch.userId
+                );
 
                 // Save match history
                 const matchHistory = new MatchHistory({
@@ -1523,23 +1841,25 @@ io.on("connection", async (socket) => {
                 };
 
                 if (partnerSocketId) {
-                    io.sockets.sockets.get(partnerSocketId)?.join(room);
-                    io.to(partnerSocketId).emit("chatStarted", {
+                    io.sockets.sockets
+                        .get(partnerSocketId)
+                        ?.join(room);
+                    io.to(partnerSocketId).emit('chatStarted', {
                         ...matchInfo,
                         partnerId: socket.userId
                     });
                 }
 
-                socket.emit("chatStarted", {
+                socket.emit('chatStarted', {
                     ...matchInfo,
                     partnerId: bestMatch.userId
                 });
             } else if (waitingQueue.length > 0) {
-                // No good match found but there are waiting users
-                // Pick anyone who isn't blocked
+                // Fallback: pick anyone not blocked
                 let fallbackIndex = -1;
                 for (let i = 0; i < waitingQueue.length; i++) {
-                    if (waitingQueue[i].userId === socket.userId) continue;
+                    if (waitingQueue[i].userId === socket.userId)
+                        continue;
 
                     const check = await calculateMatchScore(
                         socket.userId,
@@ -1552,15 +1872,21 @@ io.on("connection", async (socket) => {
                 }
 
                 if (fallbackIndex !== -1) {
-                    const partner = waitingQueue.splice(fallbackIndex, 1)[0];
+                    const partner = waitingQueue.splice(
+                        fallbackIndex,
+                        1
+                    )[0];
                     const room = [socket.userId, partner.userId]
-                        .sort().join("_");
+                        .sort()
+                        .join('_');
 
                     busyUsers.add(socket.userId);
                     busyUsers.add(partner.userId);
 
                     socket.join(room);
-                    const partnerSocketId = activeUsers.get(partner.userId);
+                    const partnerSocketId = activeUsers.get(
+                        partner.userId
+                    );
 
                     const matchHistory = new MatchHistory({
                         users: [socket.userId, partner.userId],
@@ -1571,17 +1897,22 @@ io.on("connection", async (socket) => {
                     await matchHistory.save();
 
                     if (partnerSocketId) {
-                        io.sockets.sockets.get(partnerSocketId)?.join(room);
-                        io.to(partnerSocketId).emit("chatStarted", {
-                            room,
-                            partnerId: socket.userId,
-                            matchType: 'random',
-                            matchScore: 0,
-                            commonInterests: []
-                        });
+                        io.sockets.sockets
+                            .get(partnerSocketId)
+                            ?.join(room);
+                        io.to(partnerSocketId).emit(
+                            'chatStarted',
+                            {
+                                room,
+                                partnerId: socket.userId,
+                                matchType: 'random',
+                                matchScore: 0,
+                                commonInterests: []
+                            }
+                        );
                     }
 
-                    socket.emit("chatStarted", {
+                    socket.emit('chatStarted', {
                         room,
                         partnerId: partner.userId,
                         matchType: 'random',
@@ -1589,97 +1920,114 @@ io.on("connection", async (socket) => {
                         commonInterests: []
                     });
                 } else {
-                    // Everyone in queue is blocked, add to queue
-                    const alreadyInQueue = waitingQueue
-                        .some(u => u.userId === socket.userId);
+                    // Everyone in queue is blocked
+                    const alreadyInQueue = waitingQueue.some(
+                        u => u.userId === socket.userId
+                    );
                     if (!alreadyInQueue) {
                         waitingQueue.push({
                             userId: socket.userId,
                             interests: userInterests,
-                            rank: user.rank?.count || 0,
+                            rank: user?.rank?.count || 0,
                             socketId: socket.id
                         });
                     }
-                    socket.emit("waitingForPartner");
+                    socket.emit('waitingForPartner');
                 }
             } else {
-                // Queue is empty, add to queue
-                const alreadyInQueue = waitingQueue
-                    .some(u => u.userId === socket.userId);
+                // Queue is empty
+                const alreadyInQueue = waitingQueue.some(
+                    u => u.userId === socket.userId
+                );
                 if (!alreadyInQueue) {
                     waitingQueue.push({
                         userId: socket.userId,
                         interests: userInterests,
-                        rank: user.rank?.count || 0,
+                        rank: user?.rank?.count || 0,
                         socketId: socket.id
                     });
                 }
-                socket.emit("waitingForPartner");
+                socket.emit('waitingForPartner');
             }
         } catch (error) {
-            console.error("Find chat error:", error);
-            socket.emit("error", {
-                message: "Failed to find chat partner"
+            console.error('Find chat error:', error);
+            socket.emit('error', {
+                message: 'Failed to find chat partner'
             });
         }
     });
 
     // Cancel waiting
-    socket.on("cancelWaiting", () => {
-        const index = waitingQueue
-            .findIndex(user => user.userId === socket.userId);
+    socket.on('cancelWaiting', () => {
+        const index = waitingQueue.findIndex(
+            user => user.userId === socket.userId
+        );
         if (index !== -1) {
             waitingQueue.splice(index, 1);
-            socket.emit("waitingCancelled");
+            socket.emit('waitingCancelled');
         }
     });
 
-    socket.on("privateMessage", ({ text, room }) => {
+    // ─── Private Messaging ───────────────────────────────
+    // FIX: use socket.to() instead of io.to() to avoid
+    //      sending the message back to the sender
+    socket.on('privateMessage', ({ text, room }) => {
         try {
-            const rooms = Array.from(socket.rooms)
-                .filter(r => r !== socket.id);
-            const targetRoom = room || (rooms.length > 0 ? rooms[0] : null);
+            const rooms = Array.from(socket.rooms).filter(
+                r => r !== socket.id
+            );
+            const targetRoom =
+                room || (rooms.length > 0 ? rooms[0] : null);
 
             if (!targetRoom) return;
 
-            io.to(targetRoom).emit("privateMessage", {
+            // socket.to() sends to everyone in room EXCEPT sender
+            socket.to(targetRoom).emit('privateMessage', {
                 senderId: socket.userId,
                 text,
                 timestamp: new Date()
             });
         } catch (error) {
-            console.error("Private message error:", error);
+            console.error('Private message error:', error);
         }
     });
 
     // Typing indicator
-    socket.on("typing", ({ room, isTyping }) => {
-        const targetRoom = room ||
+    socket.on('typing', ({ room, isTyping }) => {
+        const targetRoom =
+            room ||
             Array.from(socket.rooms).find(r => r !== socket.id);
         if (targetRoom) {
-            socket.to(targetRoom).emit("partnerTyping", {
+            socket.to(targetRoom).emit('partnerTyping', {
                 userId: socket.userId,
                 isTyping
             });
         }
     });
 
-    // Follow during chat - with realtime notification
-    socket.on("follow", async () => {
+    // ─── Follow during chat ──────────────────────────────
+    socket.on('follow', async () => {
         try {
-            const rooms = Array.from(socket.rooms)
-                .filter(r => r !== socket.id);
-            const targetRoom = rooms.length > 0 ? rooms[0] : null;
+            const rooms = Array.from(socket.rooms).filter(
+                r => r !== socket.id
+            );
+            const targetRoom =
+                rooms.length > 0 ? rooms[0] : null;
             if (!targetRoom) return;
 
-            const userIds = targetRoom.split("_");
-            const receiverId = userIds.find(id => id !== socket.userId);
+            const userIds = targetRoom.split('_');
+            const receiverId = userIds.find(
+                id => id !== socket.userId
+            );
             if (!receiverId) return;
 
-            const result = await followUser(io, socket.userId, receiverId);
+            const result = await followUser(
+                io,
+                socket.userId,
+                receiverId
+            );
 
-            // Emit follow status to both users in the chat room
-            io.to(targetRoom).emit("followStatusUpdate", {
+            io.to(targetRoom).emit('followStatusUpdate', {
                 followerId: socket.userId,
                 followedId: receiverId,
                 action: result.message.includes('Unfollowed')
@@ -1688,203 +2036,261 @@ io.on("connection", async (socket) => {
                 isFriend: result.isFriend
             });
 
-            socket.emit("followed", {
+            socket.emit('followed', {
                 partnerId: receiverId,
                 message: result.message,
                 isFriend: result.isFriend
             });
         } catch (error) {
-            console.error("following error:", error);
-            socket.emit("followError", {
+            console.error('following error:', error);
+            socket.emit('followError', {
                 message: error.message || 'Failed to follow'
             });
         }
     });
 
-    // Follow a specific user (not just chat partner)
-    socket.on("followUser", async ({ targetUserId }) => {
+    // Follow a specific user by ID
+    socket.on('followUser', async ({ targetUserId }) => {
         try {
-            const result = await followUser(io, socket.userId, targetUserId);
-            socket.emit("followed", {
+            if (!targetUserId) return;
+            const result = await followUser(
+                io,
+                socket.userId,
+                targetUserId
+            );
+            socket.emit('followed', {
                 partnerId: targetUserId,
                 message: result.message,
                 isFriend: result.isFriend
             });
         } catch (error) {
-            console.error("followUser error:", error);
-            socket.emit("followError", {
+            console.error('followUser error:', error);
+            socket.emit('followError', {
                 message: error.message || 'Failed to follow'
             });
         }
     });
 
-    // Like/Heart during chat - with realtime rank update
-    socket.on("like", async () => {
+    // ─── Like/Heart during chat ──────────────────────────
+    socket.on('like', async () => {
         try {
-            const rooms = Array.from(socket.rooms)
-                .filter(r => r !== socket.id);
-            const targetRoom = rooms.length > 0 ? rooms[0] : null;
+            const rooms = Array.from(socket.rooms).filter(
+                r => r !== socket.id
+            );
+            const targetRoom =
+                rooms.length > 0 ? rooms[0] : null;
             if (!targetRoom) return;
 
-            const userIds = targetRoom.split("_");
-            const receiverId = userIds.find(id => id !== socket.userId);
+            const userIds = targetRoom.split('_');
+            const receiverId = userIds.find(
+                id => id !== socket.userId
+            );
             if (!receiverId) return;
 
-            const result = await increaseRank(io, socket.userId, receiverId);
+            const result = await increaseRank(
+                io,
+                socket.userId,
+                receiverId
+            );
 
-            // Emit rank update to chat room
-            io.to(targetRoom).emit("rankUpdateInChat", {
+            io.to(targetRoom).emit('rankUpdateInChat', {
                 userId: receiverId,
                 newRank: result.count,
                 voterId: socket.userId,
                 action: result.message
             });
 
-            socket.emit("ranked", {
+            socket.emit('ranked', {
                 partnerId: receiverId,
                 newRank: result.count,
                 action: result.message
             });
         } catch (error) {
-            console.error("liking error:", error);
-            socket.emit("rankError", {
+            console.error('liking error:', error);
+            socket.emit('rankError', {
                 message: error.message || 'Failed to rank'
             });
         }
     });
 
-    // Like a specific user (not just chat partner)
-    socket.on("likeUser", async ({ targetUserId }) => {
+    // Like a specific user by ID
+    socket.on('likeUser', async ({ targetUserId }) => {
         try {
-            const result = await increaseRank(io, socket.userId, targetUserId);
-            socket.emit("ranked", {
+            if (!targetUserId) return;
+            const result = await increaseRank(
+                io,
+                socket.userId,
+                targetUserId
+            );
+            socket.emit('ranked', {
                 partnerId: targetUserId,
                 newRank: result.count,
                 action: result.message
             });
         } catch (error) {
-            console.error("likeUser error:", error);
-            socket.emit("rankError", {
+            console.error('likeUser error:', error);
+            socket.emit('rankError', {
                 message: error.message || 'Failed to rank'
             });
         }
     });
 
-    // Like/dislike post via socket for realtime updates
-    socket.on("likePost", async ({ postId }) => {
+    // ─── Post reactions via socket ───────────────────────
+    socket.on('likePost', async ({ postId }) => {
         try {
+            if (!postId) return;
             const result = await togglePostReaction(
-                io, socket.userId, postId, 'like'
+                io,
+                socket.userId,
+                postId,
+                'like'
             );
-
-            // Broadcast to all connected users viewing this post
-            io.emit("postReactionUpdate", result);
+            io.emit('postReactionUpdate', result);
         } catch (error) {
-            console.error("likePost socket error:", error);
+            console.error('likePost socket error:', error);
         }
     });
 
-    socket.on("dislikePost", async ({ postId }) => {
+    socket.on('dislikePost', async ({ postId }) => {
         try {
+            if (!postId) return;
             const result = await togglePostReaction(
-                io, socket.userId, postId, 'dislike'
+                io,
+                socket.userId,
+                postId,
+                'dislike'
             );
-
-            io.emit("postReactionUpdate", result);
+            io.emit('postReactionUpdate', result);
         } catch (error) {
-            console.error("dislikePost socket error:", error);
+            console.error('dislikePost socket error:', error);
         }
     });
 
-    // Mark notifications as read via socket
-    socket.on("markNotificationsRead", async ({ notificationIds }) => {
-        try {
-            if (notificationIds && notificationIds.length > 0) {
-                await Notification.updateMany(
-                    {
-                        _id: { $in: notificationIds },
-                        recipientId: socket.userId
-                    },
-                    { isRead: true }
-                );
-            } else {
-                await Notification.updateMany(
-                    { recipientId: socket.userId, isRead: false },
-                    { isRead: true }
+    // ─── Mark notifications read ─────────────────────────
+    socket.on(
+        'markNotificationsRead',
+        async ({ notificationIds }) => {
+            try {
+                if (
+                    notificationIds &&
+                    notificationIds.length > 0
+                ) {
+                    await Notification.updateMany(
+                        {
+                            _id: { $in: notificationIds },
+                            recipientId: socket.userId
+                        },
+                        { isRead: true }
+                    );
+                } else {
+                    await Notification.updateMany(
+                        {
+                            recipientId: socket.userId,
+                            isRead: false
+                        },
+                        { isRead: true }
+                    );
+                }
+
+                const newCount =
+                    await Notification.countDocuments({
+                        recipientId: socket.userId,
+                        isRead: false
+                    });
+                socket.emit('unreadNotifications', {
+                    count: newCount
+                });
+            } catch (error) {
+                console.error(
+                    'Mark notifications read socket error:',
+                    error
                 );
             }
-
-            const newCount = await Notification.countDocuments({
-                recipientId: socket.userId,
-                isRead: false
-            });
-            socket.emit('unreadNotifications', { count: newCount });
-        } catch (error) {
-            console.error("Mark notifications read socket error:", error);
         }
-    });
+    );
 
-    socket.on("signal", ({ data, room }) => {
-        const targetRoom = room ||
+    // ─── WebRTC Signaling ────────────────────────────────
+    socket.on('signal', ({ data, room }) => {
+        const targetRoom =
+            room ||
             Array.from(socket.rooms).find(r => r !== socket.id);
         if (targetRoom) {
-            socket.to(targetRoom).emit("signal", { data });
+            socket.to(targetRoom).emit('signal', { data });
         }
     });
 
-    socket.on("leaveChat", ({ partnerId }) => {
+    // ─── Leave Chat ──────────────────────────────────────
+    socket.on('leaveChat', ({ partnerId }) => {
         if (partnerId) {
-            const room = [socket.userId, partnerId].sort().join("_");
+            const room = [socket.userId, partnerId]
+                .sort()
+                .join('_');
             socket.leave(room);
             busyUsers.delete(socket.userId);
             busyUsers.delete(partnerId);
 
             const partnerSocketId = activeUsers.get(partnerId);
             if (partnerSocketId) {
-                io.sockets.sockets.get(partnerSocketId)?.leave(room);
-                io.to(partnerSocketId).emit("partnerLeft");
+                io.sockets.sockets
+                    .get(partnerSocketId)
+                    ?.leave(room);
+                io.to(partnerSocketId).emit('partnerLeft');
             }
         }
     });
 
-    socket.on("disconnect", async () => {
-        console.log("User disconnected:", socket.userId);
+    // ─── Disconnect ──────────────────────────────────────
+    socket.on('disconnect', async () => {
+        console.log('User disconnected:', socket.userId);
 
         activeUsers.delete(socket.userId);
         busyUsers.delete(socket.userId);
 
-        const index = waitingQueue
-            .findIndex(user => user.userId === socket.userId);
+        const index = waitingQueue.findIndex(
+            user => user.userId === socket.userId
+        );
         if (index !== -1) {
             waitingQueue.splice(index, 1);
         }
 
-        // Update online status
-        await User.findByIdAndUpdate(socket.userId, {
-            isOnline: false,
-            lastSeen: new Date()
-        });
-
-        // Notify friends that user went offline
-        const user = await User.findById(socket.userId)
-            .select('friends username');
-        if (user && user.friends.length > 0) {
-            user.friends.forEach(friendId => {
-                const friendSocketId = activeUsers.get(friendId.toString());
-                if (friendSocketId) {
-                    io.to(friendSocketId).emit('userOffline', {
-                        userId: socket.userId,
-                        username: user.username,
-                        lastSeen: new Date()
-                    });
-                }
+        try {
+            // Update online status
+            await User.findByIdAndUpdate(socket.userId, {
+                isOnline: false,
+                lastSeen: new Date()
             });
+
+            // Notify friends that user went offline
+            const user = await User.findById(
+                socket.userId
+            ).select('friends username');
+            if (user && user.friends.length > 0) {
+                user.friends.forEach(friendId => {
+                    const friendSocketId = activeUsers.get(
+                        friendId.toString()
+                    );
+                    if (friendSocketId) {
+                        io.to(friendSocketId).emit(
+                            'userOffline',
+                            {
+                                userId: socket.userId,
+                                username: user.username,
+                                lastSeen: new Date()
+                            }
+                        );
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Disconnect cleanup error:', error);
         }
 
-        const rooms = Array.from(socket.rooms)
-            .filter(r => r !== socket.id);
+        // Notify chat partners
+        const rooms = Array.from(socket.rooms).filter(
+            r => r !== socket.id
+        );
         rooms.forEach(room => {
-            socket.to(room).emit("partnerDisconnected");
+            socket.to(room).emit('partnerDisconnected');
         });
     });
 });

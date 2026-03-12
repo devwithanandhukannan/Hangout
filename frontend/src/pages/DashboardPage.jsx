@@ -3,6 +3,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { useSocket } from "../SocketContext";
 import { useToastHelpers } from "../Toast";
+import { FaBell, FaHistory, FaUserFriends } from "react-icons/fa";
+import { CgCamera, CgCommunity, CgMic } from "react-icons/cg";
+import { IoIosAddCircle, IoMdSettings } from "react-icons/io";
+import { IoIosSettings } from "react-icons/io";
+
 // sendDirectChatRequest comes from useSocket
 import {
   getInterests, setInterests as apiSetInterests,
@@ -14,25 +19,25 @@ function parseInterests(raw) {
   if (typeof raw === "string") return raw.split(",").map((s) => s.trim()).filter(Boolean);
   if (Array.isArray(raw))
     return raw.flatMap((item) => (typeof item === "string" ? item.split(",") : [item]))
-              .map((s) => s.trim()).filter(Boolean);
+      .map((s) => s.trim()).filter(Boolean);
   return [];
 }
 
 export default function DashboardPage() {
   const { user, logout } = useAuth();
   const { unreadCount, markNotificationsRead, sendDirectChatRequest } = useSocket();
-  const toast    = useToastHelpers();
+  const toast = useToastHelpers();
   const navigate = useNavigate();
 
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [micOn, setMicOn]   = useState(true);
-  const [camOn, setCamOn]   = useState(true);
-  const [interests, setInterests]       = useState([]);
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [interests, setInterests] = useState([]);
   const [interestInput, setInterestInput] = useState("");
   const [loadingInterests, setLoadingInterests] = useState(true);
-  const [friends, setFriends]           = useState([]);
-  const [rankScore, setRankScore]       = useState(0);
-  const [suggested, setSuggested]       = useState([]);
+  const [friends, setFriends] = useState([]);
+  const [rankScore, setRankScore] = useState(0);
+  const [suggested, setSuggested] = useState([]);
   const [followingIds, setFollowingIds] = useState(new Set());
 
   useEffect(() => {
@@ -47,7 +52,7 @@ export default function DashboardPage() {
         setFollowingIds(followingSet);
         setSuggested(Array.isArray(sugg) ? sugg.slice(0, 6) : []);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoadingInterests(false));
   }, []);
 
@@ -71,7 +76,7 @@ export default function DashboardPage() {
     try {
       await apiSetInterests(updated);
       toast.notif(`Removed #${tag}`);
-    } catch {}
+    } catch { }
   };
 
   const handleFollowSuggested = async (uid) => {
@@ -95,7 +100,7 @@ export default function DashboardPage() {
   };
 
   const startFriendChat = (friend) => {
-    const fid   = typeof friend === "string" ? friend : friend._id || friend.id;
+    const fid = typeof friend === "string" ? friend : friend._id || friend.id;
     const fname = typeof friend === "string" ? friend : friend.username || "Friend";
     // Send a direct chat request — friend gets an Accept/Decline toast
     const room = sendDirectChatRequest(fid, fname);
@@ -110,9 +115,9 @@ export default function DashboardPage() {
     navigate("/login");
   };
 
-  const initial     = user?.username?.[0]?.toUpperCase() || "U";
+  const initial = user?.username?.[0]?.toUpperCase() || "U";
   const displayName = user?.username || "User";
-  const handle      = `@${user?.username || "user"}`;
+  const handle = `@${user?.username || "user"}`;
 
   return (
     <div
@@ -132,7 +137,7 @@ export default function DashboardPage() {
               onClick={() => { markNotificationsRead(); navigate("/settings"); }}
               className="relative h-8 w-8 flex items-center justify-center rounded-full border border-white/20 hover:bg-white/10 transition"
             >
-              🔔
+              <FaBell/>
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-[9px] font-bold flex items-center justify-center">
                   {unreadCount > 9 ? "9+" : unreadCount}
@@ -156,19 +161,19 @@ export default function DashboardPage() {
           <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1">
             <Link to="/chat-history"
               className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/10 transition text-xs font-medium">
-              <span>🗂</span> Chat History
+              <FaHistory size={10} />Chat History
             </Link>
             <Link to="/feed"
               className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/10 transition text-xs font-medium">
-              <span>📰</span> Community Feed
+              <CgCommunity size={15} /> Community Feed
             </Link>
             <Link to="/post"
               className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/10 transition text-xs font-medium">
-              <span>✏️</span> Post Something
+              <IoIosAddCircle size={15} /> Post Something
             </Link>
             <Link to="/settings"
               className="flex items-center gap-2 rounded-xl px-2.5 py-2 hover:bg-white/10 transition text-xs font-medium">
-              <span>⚙️</span> Settings
+              <IoMdSettings /> Settings
             </Link>
           </div>
 
@@ -258,16 +263,14 @@ export default function DashboardPage() {
             </Link>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button onClick={() => setMicOn(!micOn)}
-                className={`px-4 py-1.5 rounded-full text-xs border flex items-center gap-1.5 transition ${
-                  micOn ? "bg-white text-black border-white" : "bg-black/60 text-white border-white/30"
-                }`}>
-                <span>🎙</span><span>{micOn ? "Mic enabled" : "Mic muted"}</span>
+                className={`px-4 py-1.5 rounded-full text-xs border flex items-center gap-1.5 transition ${micOn ? "bg-white text-black border-white" : "bg-black/60 text-white border-white/30"
+                  }`}>
+                <span><CgMic /></span><span>{micOn ? "Mic enabled" : "Mic muted"}</span>
               </button>
               <button onClick={() => setCamOn(!camOn)}
-                className={`px-4 py-1.5 rounded-full text-xs border flex items-center gap-1.5 transition ${
-                  camOn ? "bg-white text-black border-white" : "bg-black/60 text-white border-white/30"
-                }`}>
-                <span>📹</span><span>{camOn ? "Video enabled" : "Video disabled"}</span>
+                className={`px-4 py-1.5 rounded-full text-xs border flex items-center gap-1.5 transition ${camOn ? "bg-white text-black border-white" : "bg-black/60 text-white border-white/30"
+                  }`}>
+                <span><CgCamera /></span><span>{camOn ? "Video enabled" : "Video disabled"}</span>
               </button>
             </div>
             <p className="text-[11px] text-gray-300 text-center">
@@ -287,14 +290,16 @@ export default function DashboardPage() {
 
           <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1">
             {friends.length === 0 ? (
-              <div className="text-[11px] text-gray-500 px-2 py-6 text-center">
-                <span className="text-2xl block mb-1">🤝</span>
+              <div className="text-[11px] text-gray-500 px-2 py-6 text-center flex flex-col items-center justify-center">
+                <FaUserFriends className="text-lg mb-2" size={30} />
                 <p>No friends yet.</p>
-                <p className="text-[10px] mt-1 text-gray-600">Follow back and you'll become friends!</p>
+                <p className="text-[10px] mt-1 text-gray-600">
+                  Follow back and you'll become friends!
+                </p>
               </div>
             ) : (
               friends.map((f, i) => {
-                const name     = typeof f === "string" ? f : f.username || "User";
+                const name = typeof f === "string" ? f : f.username || "User";
                 const fInitial = name[0]?.toUpperCase() || "U";
                 const isOnline = typeof f === "object" ? f.isOnline : false;
                 return (
@@ -330,9 +335,9 @@ export default function DashboardPage() {
               </div>
               <div className="flex-shrink-0 px-2 pb-2 space-y-1">
                 {suggested.map((u, i) => {
-                  const uid  = u._id || u.id;
+                  const uid = u._id || u.id;
                   const name = u.username || "User";
-                  const isF  = followingIds.has(uid?.toString());
+                  const isF = followingIds.has(uid?.toString());
                   return (
                     <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-white/5 transition">
                       <div className="h-7 w-7 flex-shrink-0 rounded-full bg-white/20 text-white flex items-center justify-center text-xs font-bold">
@@ -345,10 +350,9 @@ export default function DashboardPage() {
                         )}
                       </div>
                       <button onClick={() => handleFollowSuggested(uid?.toString())}
-                        className={`flex-shrink-0 text-[10px] px-2 py-0.5 rounded-full border transition ${
-                          isF ? "border-white/30 text-gray-400 hover:border-red-400 hover:text-red-400"
-                              : "border-white text-white hover:bg-white hover:text-black"
-                        }`}>
+                        className={`flex-shrink-0 text-[10px] px-2 py-0.5 rounded-full border transition ${isF ? "border-white/30 text-gray-400 hover:border-red-400 hover:text-red-400"
+                            : "border-white text-white hover:bg-white hover:text-black"
+                          }`}>
                         {isF ? "✓" : "+"}
                       </button>
                     </div>
