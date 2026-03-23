@@ -8,7 +8,6 @@ import { CgCamera, CgCommunity, CgMic } from "react-icons/cg";
 import { IoIosAddCircle, IoMdSettings } from "react-icons/io";
 import { IoIosSettings } from "react-icons/io";
 
-// sendDirectChatRequest comes from useSocket
 import {
   getInterests, setInterests as apiSetInterests,
   getProfile, getSuggestedUsers, followToggle,

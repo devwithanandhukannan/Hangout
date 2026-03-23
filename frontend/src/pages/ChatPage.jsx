@@ -39,23 +39,23 @@ export default function ChatPage() {
   // directRoom is present when User A already sent the request before navigating
   const directRoom = location.state?.directRoom  ?? null;
 
-  // ── WebRTC refs ──────────────────────────────────────────────────────────
+  //  WebRTC refs 
   const pcRef         = useRef(null);
   const localStream   = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef= useRef(null);
 
-  // ── Misc refs ────────────────────────────────────────────────────────────
+  //  Misc refs 
   const msgEndRef    = useRef(null);
   const typingTimer  = useRef(null);
   const flashTimer   = useRef(null);
-  const chatDataRef  = useRef({});   // { idx: { user, message, time } }
+  const chatDataRef  = useRef({});   
   const msgIndexRef  = useRef(0);
   const roomRef      = useRef(null);
   const partnerIdRef = useRef(null);
 
-  // ── UI state ─────────────────────────────────────────────────────────────
-  const [mode,           setMode]           = useState("video"); // "video"|"chat"
+  // UI state 
+  const [mode,           setMode]           = useState("video"); 
   const [micOn,          setMicOn]          = useState(true);
   const [camOn,          setCamOn]          = useState(true);
   const [bgFlash,        setBgFlash]        = useState(false);
@@ -68,7 +68,7 @@ export default function ChatPage() {
   const [videoActive,    setVideoActive]    = useState(false);
   const [partnerTyping,  setPartnerTyping]  = useState(false);
 
-  // ── Match state ───────────────────────────────────────────────────────────
+  //  Match state 
   // idle | waiting_accept | searching | chatting | partner_left
   const [chatStatus,      setChatStatus]      = useState("idle");
   const [room,            setRoom]            = useState(null);
@@ -86,7 +86,7 @@ export default function ChatPage() {
   useEffect(() => { roomRef.current      = room;      }, [room]);
   useEffect(() => { partnerIdRef.current = partnerId; }, [partnerId]);
 
-  // ── Stop video call ───────────────────────────────────────────────────────
+  // Stop video call
   const stopVideo = useCallback(() => {
     if (pcRef.current)       { pcRef.current.close(); pcRef.current = null; }
     if (localStream.current) {
@@ -98,7 +98,7 @@ export default function ChatPage() {
     setVideoActive(false);
   }, []);
 
-  // ── Fetch partner username from /api/user/:id ─────────────────────────────
+  //  Fetch partner username from /api/user/:id 
   const resolveUsername = useCallback(async (pid) => {
     if (!pid) return;
     try {
@@ -110,7 +110,7 @@ export default function ChatPage() {
     }
   }, []);
 
-  // ── Reset per-session state ───────────────────────────────────────────────
+  //  Reset per-session state
   const resetSession = useCallback(() => {
     setMessages([]);
     setLiked(false);
@@ -122,7 +122,7 @@ export default function ChatPage() {
     msgIndexRef.current = 0;
   }, []);
 
-  // ── Enter chatting state ──────────────────────────────────────────────────
+  // Enter chatting state 
   const enterChat = useCallback((r, pid, mt, ci, nameHint) => {
     // Guard: never match with yourself
     if (pid === myUserId) {
@@ -150,7 +150,7 @@ export default function ChatPage() {
     toast.success(info, 4000);
   }, [myUserId, resetSession, stopVideo, resolveUsername]); // eslint-disable-line
 
-  // ── Socket listeners ──────────────────────────────────────────────────────
+  //  Socket listeners
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket) return;
@@ -283,14 +283,14 @@ export default function ChatPage() {
       socket.off("signal",              onSignal);
     };
   // directRoom / friendId / friendName are stable navigation state values
-  }, [connected, myUserId]); // eslint-disable-line
+  }, [connected, myUserId]); 
 
   // Scroll to bottom on new message
   useEffect(() => {
     msgEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, partnerTyping]);
 
-  // ── WebRTC helpers ─────────────────────────────────────────────────────────
+  //  WebRTC helpers 
   const buildPC = (socket, stream) => {
     const pc = new RTCPeerConnection(RTC_CONFIG);
     pcRef.current = pc;
@@ -357,7 +357,7 @@ export default function ChatPage() {
     });
   }, []);
 
-  // ── Matchmaking actions ────────────────────────────────────────────────────
+  //  Matchmaking actions 
   const findChat = useCallback(() => {
     const socket = socketRef.current;
     if (!socket?.connected) { toast.error("Not connected — please wait…"); return; }
@@ -365,7 +365,7 @@ export default function ChatPage() {
     setRoom(null); setPartnerId(null);
     resetSession();
     socket.emit("findChat");
-  }, [resetSession]); // eslint-disable-line
+  }, [resetSession]); 
 
   const cancelWaiting = useCallback(() => {
     socketRef.current?.emit("cancelWaiting");
@@ -394,7 +394,7 @@ export default function ChatPage() {
     navigate("/dashboard");
   }, [navigate, stopVideo, chatStatus, friendId, cancelDirectChatRequest]);
 
-  // ── Messaging ─────────────────────────────────────────────────────────────
+  //  Messaging 
   const handleSend = useCallback((e) => {
     e?.preventDefault();
     const text   = input.trim();
@@ -422,7 +422,7 @@ export default function ChatPage() {
     }, 2000);
   }, []);
 
-  // ── Like / Rank ────────────────────────────────────────────────────────────
+  //  Like / Rank 
   const handleLike = useCallback(() => {
     const socket = socketRef.current;
     const pid    = partnerIdRef.current;
@@ -442,7 +442,7 @@ export default function ChatPage() {
     });
   }, [myUserId]);
 
-  // ── Follow ─────────────────────────────────────────────────────────────────
+  //  Follow 
   const handleFollow = useCallback(() => {
     const socket = socketRef.current;
     const pid    = partnerIdRef.current;
@@ -451,7 +451,7 @@ export default function ChatPage() {
     setFollowed((p) => !p);
   }, [myUserId]);
 
-  // ── Save chat ──────────────────────────────────────────────────────────────
+  //  Save chat 
   const handleSaveChat = useCallback(async () => {
     const pid      = partnerIdRef.current;
     const chatData = chatDataRef.current;
@@ -472,7 +472,7 @@ export default function ChatPage() {
     finally { setSaving(false); }
   }, []);
 
-  // ── Derived display values ─────────────────────────────────────────────────
+  //  Derived display values 
   const partnerInitial = partnerUsername?.[0]?.toUpperCase() || "?";
   const partnerDisplay = partnerUsername || (partnerId ? `User#${partnerId.slice(-4)}` : "");
 
@@ -486,14 +486,14 @@ export default function ChatPage() {
     return { text: "", color: "" };
   })();
 
-  // ── Send direct request helper ─────────────────────────────────────────────
+  //  Send direct request helper 
   const sendRequest = useCallback(() => {
     if (!friendId) return;
     const r = sendDirectChatRequest(friendId, friendName);
     if (r) setChatStatus("waiting_accept");
   }, [friendId, friendName, sendDirectChatRequest]);
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // 
   return (
     <div
       className="h-screen flex flex-col text-white antialiased overflow-hidden transition-colors duration-700"

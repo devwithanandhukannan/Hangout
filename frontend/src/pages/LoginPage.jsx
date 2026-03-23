@@ -12,7 +12,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Already logged in → go to dashboard
+  // Already logged in go to dashboard
   if (user) return <Navigate to="/dashboard" replace />;
 
   const handleSubmit = async (e) => {

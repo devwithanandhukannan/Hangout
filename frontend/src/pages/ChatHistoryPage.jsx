@@ -3,33 +3,14 @@ import { Link } from "react-router-dom";
 import { getChats, deleteChat } from "../api";
 import { useAuth } from "../AuthContext";
 
-// The backend saves chatData as an object: { "0": { user, message, time }, "1": ... }
-// OR as an array: [{ senderId, text }, ...]
-// Normalize both into: [{ from: "me"|"partner", text, time }]
 function normalizeMessages(rawMessages, myId) {
   if (!rawMessages) return [];
-
-  // If it's an object (from the working HTML test page format)
   if (!Array.isArray(rawMessages) && typeof rawMessages === "object") {
     return Object.values(rawMessages).map((m) => ({
       from: m.user === "me" ? "me" : "partner",
       text: m.message || m.text || "",
       time: m.time || "",
     }));
-  }
-
-  // If it's an array (from the React save-chat format: [{ senderId, text }])
-  if (Array.isArray(rawMessages)) {
-    return rawMessages.map((m) => {
-      const senderId = typeof m.senderId === "object" ? m.senderId?._id || m.senderId?.id : m.senderId;
-      const isMe = senderId?.toString() === myId?.toString();
-      return {
-        from: isMe ? "me" : "partner",
-        text: m.text || m.message || "",
-        time: m.time || "",
-        senderId,
-      };
-    });
   }
   return [];
 }

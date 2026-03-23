@@ -1,22 +1,5 @@
-/**
- * api.js
- * ─────────────────────────────────────────────────────────────────────────────
- * All HTTP REST calls to the Express backend.
- *
- * During Vite dev-server:
- *   Requests go to /api/* which the Vite proxy rewrites to
- *   http://localhost:8000/* on the SERVER machine.
- *   This means LAN clients (192.168.x.x:5173) also work because the proxy
- *   runs on the server, not on the client.
- *
- * During production (static file):
- *   Vite proxy is gone. We fall back to the direct SOCKET_URL
- *   (same hostname, port 8000) so it still works on LAN.
- */
-
 import { SOCKET_URL } from "./config";
 
-// In dev: use /api (proxied by Vite).  In prod: use direct backend URL.
 const isDev = import.meta.env.DEV;
 const BASE  = isDev ? "/api" : `${SOCKET_URL}`;
 
