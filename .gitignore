@@ -1,3 +1,5 @@
 node_modules
 package-lock.json
 data/
+# Ignore MongoDB data folder
+mongodb server/data/
