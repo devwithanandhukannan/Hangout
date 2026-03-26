@@ -12,8 +12,45 @@ import {
     Chat, Comment, Post, User, Notification, MatchHistory
 } from './model.js';
 import mongoose from 'mongoose';
+import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import multer from 'multer';
+import multerS3 from 'multer-s3';
 
 dotenv.config();
+
+const s3 = new S3Client({
+    region: process.env.AWS_REGION,
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+    }
+});
+
+const upload = multer({
+    storage: multerS3({
+        s3: s3,
+        bucket: process.env.AWS_S3_BUCKET,
+        contentType: multerS3.AUTO_CONTENT_TYPE,
+        metadata: function (req, file, cb) {
+            cb(null, { fieldName: file.fieldname });
+        },
+        key: function (req, file, cb) {
+            const ext = file.originalname.split('.').pop().toLowerCase();
+            const filename = 'avatars/' + req.userId + '-' + Date.now() + '.' + ext;
+            cb(null, filename);
+        }
+    }),
+    fileFilter: function (req, file, cb) {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files allowed'), false);
+        }
+    },
+    limits: {
+        fileSize: 2 * 1024 * 1024
+    }
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1032,16 +1069,32 @@ app.get('/user/:userId', authMiddleware, async (req, res) => {
     }
 });
 
-app.patch('/update_profile', authMiddleware, async (req, res) => {
+app.patch('/update_profile', authMiddleware, upload.single('avatar'), async (req, res) => {
     try {
         const userId = req.userId;
-        const { username, password, email, bio, avatar } = req.body;
+        const { username, password, email, bio } = req.body;
 
         let updateData = {};
         if (username) updateData.username = username;
         if (email) updateData.email = email;
         if (bio !== undefined) updateData.bio = bio;
-        if (avatar) updateData.avatar = avatar;
+
+        if (req.file) {
+            updateData.avatar = req.file.location;
+
+            const oldUser = await User.findById(userId).select('avatar');
+            if (oldUser && oldUser.avatar && oldUser.avatar.includes('.amazonaws.com/')) {
+                try {
+                    const oldKey = oldUser.avatar.split('.amazonaws.com/')[1];
+                    await s3.send(new DeleteObjectCommand({
+                        Bucket: process.env.AWS_S3_BUCKET,
+                        Key: oldKey
+                    }));
+                } catch (e) {
+                    console.log('Could not delete old avatar:', e.message);
+                }
+            }
+        }
 
         if (password) {
             if (password.length < 6) {
@@ -1052,7 +1105,6 @@ app.patch('/update_profile', authMiddleware, async (req, res) => {
             updateData.password = await bcrypt.hash(password, 10);
         }
 
-        // Check username/email uniqueness
         if (username || email) {
             const orConditions = [];
             if (username) orConditions.push({ username });
@@ -1064,10 +1116,9 @@ app.patch('/update_profile', authMiddleware, async (req, res) => {
             });
             if (existing) {
                 return res.status(400).json({
-                    message:
-                        existing.username === username
-                            ? 'Username taken'
-                            : 'Email taken'
+                    message: existing.username === username
+                        ? 'Username taken'
+                        : 'Email taken'
                 });
             }
         }
@@ -1079,13 +1130,13 @@ app.patch('/update_profile', authMiddleware, async (req, res) => {
         ).select('-password');
 
         if (!userobj) {
-            return res.status(400).json({ message: 'User not found' });
+            return res.status(404).json({ message: 'User not found' });
         }
 
         res.status(200).json({ message: 'Updated', user: userobj });
     } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: 'Server error' });
+        console.error('Update profile error:', error);
+        res.status(500).json({ message: error.message || 'Server error' });
     }
 });
 
