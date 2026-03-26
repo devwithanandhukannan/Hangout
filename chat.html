@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Interest Chat & Video Test</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #messages { border: 1px solid #ccc; padding: 10px; height: 200px; overflow-y: auto; margin-bottom: 10px; }
+    #chatBox, #videoCallDiv { display: none; margin-top: 10px; }
+    video { width: 300px; height: 200px; background: black; margin-right: 10px; }
+    .interest { display: inline-block; padding: 6px 10px; border: 1px solid #888; margin: 4px; cursor: pointer; }
+    .interest.selected { background: #4caf50; color: white; }
+    .actionBtn { margin-top: 6px; padding: 6px 12px; margin-right: 6px; cursor: pointer; }
+    .likeBtn { background: #f59e0b; color: white; border: none; }
+    .followBtn { background: #2563eb; color: white; border: none; }
+  </style>
+</head>
+<body>
+
+<h2>Interest Chat & Video Test</h2>
+
+<p id="status">Status: Not connected</p>
+
+<h3>Your Interests</h3>
+<div id="interestList"></div>
+
+<button id="findChatBtn">Find Chat</button>
+
+<div id="chatBox">
+  <div id="messages"></div>
+  <input type="text" id="messageInput" placeholder="Type a message..." />
+  <button id="sendBtn">Send</button>
+  <button id="leaveBtn">Leave Chat</button>
+  <button id="videoBtn">Start Video Call</button>
+  <br>
+  <button onclick="savechat()">save chat</button>
+  <button class="actionBtn likeBtn" id="likeBtn">👍 Like</button>
+  <button class="actionBtn followBtn" id="followBtn">🤝 Follow</button>
+</div>
+
+<div id="videoCallDiv">
+  <video id="localVideo" autoplay muted></video>
+  <video id="remoteVideo" autoplay></video>
+  <br>
+  <button id="endCallBtn">End Call</button>
+</div>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+  const socket = io("http://localhost:8000", { withCredentials: true });
+
+  let currentPartnerId = null;
+  let pc = null;
+  let localStream = null;
+
+  let chatData = {};
+  let messageIndex = 0;
+
+  const statusEl = document.getElementById("status");
+  const chatBox = document.getElementById("chatBox");
+  const messages = document.getElementById("messages");
+  const messageInput = document.getElementById("messageInput");
+  const videoCallDiv = document.getElementById("videoCallDiv");
+  const localVideo = document.getElementById("localVideo");
+  const remoteVideo = document.getElementById("remoteVideo");
+  const interestList = document.getElementById("interestList");
+  const likeBtn = document.getElementById("likeBtn");
+  const followBtn = document.getElementById("followBtn");
+
+  socket.on("connect", () => {
+    statusEl.textContent = "Status: Connected (" + socket.id + ")";
+    socket.emit("getInterests");
+  });
+
+  async function savechat() {
+  if (!currentPartnerId) return;
+
+  try {
+    const res = await fetch("http://localhost:8000/save-chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        partnerId: currentPartnerId,
+        chatData: chatData
+      })
+    });
+
+    const data = await res.json();
+    console.log(data);
+
+  } catch (err) {
+    console.error("Error saving chat:", err);
+  }
+}
+
+
+  socket.on("interests", (interests) => {
+    interestList.innerHTML = "";
+    interests.forEach(i => {
+      const el = document.createElement("div");
+      el.className = "interest selected";
+      el.textContent = i;
+      interestList.appendChild(el);
+    });
+  });
+
+  document.getElementById("findChatBtn").onclick = () => {
+    socket.emit("findChat");
+    statusEl.textContent = "Status: Looking for a partner...";
+  };
+
+  socket.on("waitingForPartner", () => {
+    statusEl.textContent = "Status: Waiting for a partner...";
+  });
+
+  socket.on("chatStarted", ({ room, partnerId, matchType }) => {
+    currentPartnerId = partnerId;
+    statusEl.textContent = `Status: Connected (${matchType} match)`;
+    chatBox.style.display = "block";
+    messages.innerHTML = "";
+    chatData = {};
+    messageIndex = 0;
+  });
+
+  // ----------------- Messaging -----------------
+
+  socket.on("privateMessage", (msg) => {
+    const sender = msg.senderId === socket.id ? "me" : "partner";
+    const time = new Date().toLocaleTimeString();
+
+    // Store in structured object
+    chatData[messageIndex] = {
+      user: sender,
+      message: msg.text,
+      time: time
+    };
+
+    const el = document.createElement("div");
+    el.dataset.index = messageIndex;
+    el.textContent = sender + ": " + msg.text + " (" + time + ")";
+    messages.appendChild(el);
+
+    messageIndex++;
+    messages.scrollTop = messages.scrollHeight;
+
+    console.log(chatData);
+  });
+
+  document.getElementById("sendBtn").onclick = () => {
+    const text = messageInput.value.trim();
+    if (!text || !currentPartnerId) return;
+
+    socket.emit("privateMessage", { text });
+
+    const time = new Date().toLocaleTimeString();
+
+    // Store your own message immediately
+    chatData[messageIndex] = {
+      user: "me",
+      message: text,
+      time: time
+    };
+
+    const el = document.createElement("div");
+    el.dataset.index = messageIndex;
+    el.textContent = "me: " + text + " (" + time + ")";
+    messages.appendChild(el);
+
+    messageIndex++;
+    messages.scrollTop = messages.scrollHeight;
+
+    messageInput.value = "";
+
+    console.log(chatData);
+  };
+
+  document.getElementById("leaveBtn").onclick = () => {
+    if (currentPartnerId) {
+      socket.emit("leaveChat", { partnerId: currentPartnerId });
+      resetUI("Left chat");
+    }
+  };
+
+  socket.on("partnerLeft", () => resetUI("Partner left"));
+  socket.on("partnerDisconnected", () => resetUI("Partner disconnected"));
+
+  function resetUI(msg) {
+    chatBox.style.display = "none";
+    videoCallDiv.style.display = "none";
+    currentPartnerId = null;
+    statusEl.textContent = "Status: " + msg;
+  }
+
+  document.getElementById("videoBtn").onclick = async () => {
+    videoCallDiv.style.display = "block";
+    chatBox.style.display = "none";
+
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localVideo.srcObject = localStream;
+
+    pc = new RTCPeerConnection();
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+    pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+
+    pc.onicecandidate = e => {
+      if (e.candidate) socket.emit("signal", { data: { candidate: e.candidate } });
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("signal", { data: { sdp: offer } });
+  };
+
+  document.getElementById("endCallBtn").onclick = () => {
+    if (pc) pc.close();
+    pc = null;
+    videoCallDiv.style.display = "none";
+    chatBox.style.display = "block";
+  };
+
+  socket.on("signal", async ({ data }) => {
+    if (!pc) return;
+
+    if (data.sdp) {
+      await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      if (data.sdp.type === "offer") {
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit("signal", { data: { sdp: pc.localDescription } });
+      }
+    } else if (data.candidate) {
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    }
+  });
+
+  likeBtn.onclick = () => {
+    if (!currentPartnerId) return;
+    socket.emit("like");
+    console.log("Sent like to:", currentPartnerId);
+  };
+
+  followBtn.onclick = () => {
+    if (!currentPartnerId) return;
+    socket.emit("follow");
+    console.log("Sent follow to:", currentPartnerId);
+  };
+
+  socket.on("ranked", ({ partnerId }) => {
+    console.log("You liked:", partnerId);
+  });
+
+  socket.on("followed", ({ partnerId }) => {
+    console.log("You followed:", partnerId);
+  });
+
+</script>
+
+</body>
+</html>

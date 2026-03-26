@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MeetRandom Auth</title>
+
+  <style>
+    body {
+      background: #0f172a;
+      color: #e5e7eb;
+      font-family: Arial;
+      padding: 40px;
+      max-width: 400px;
+      margin: auto;
+    }
+
+    h2 {
+      text-align: center;
+    }
+
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      border-radius: 6px;
+      border: none;
+    }
+
+    input {
+      background: #020617;
+      color: white;
+      border: 1px solid #334155;
+    }
+
+    button {
+      background: #2563eb;
+      color: white;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background: #1d4ed8;
+    }
+
+    #msg {
+      margin-top: 10px;
+      font-size: 14px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<h2>🚀 MeetRandom</h2>
+
+<h3>Login / Signup</h3>
+
+<input id="username" placeholder="Username" />
+<input id="email" placeholder="Email (Signup only)" />
+<input id="password" type="password" placeholder="Password" />
+
+<button onclick="signup()">Signup</button>
+<button onclick="login()">Login</button>
+
+<div id="msg"></div>
+
+<script>
+async function signup() {
+
+    console.log(username.value, email.value ,password.value);
+
+
+  const res = await fetch("http://localhost:8000/signup", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: username.value.trim(),
+      email: email.value.trim(),
+      password: password.value
+    })
+  });
+
+  msg.textContent = res.ok ? "Signup successful" : "Signup failed";
+}
+
+
+async function login() {
+  const res = await fetch("http://localhost:8000/signin", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: username.value,
+      password: password.value
+    })
+  });
+
+  document.getElementById("msg").textContent =
+    res.ok ? "Login successful" : "Login failed";
+}
+</script>
+
+</body>
+</html>
