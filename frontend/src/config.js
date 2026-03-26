@@ -22,7 +22,7 @@
  */
 
 const hostname = window.location.hostname;
-const protocol = window.location.protocol; // http: or https:
+const protocol = window.location.protocol;
 const BACKEND_PORT = 8000;
 
 export const SOCKET_URL = `${protocol}//${hostname}:${BACKEND_PORT}`;

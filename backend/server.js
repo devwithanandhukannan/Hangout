@@ -53,7 +53,7 @@ const upload = multer({
 });
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8000;
 const CLIENT_URL = process.env.CLIENT_URL;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
