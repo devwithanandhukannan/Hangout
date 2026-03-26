@@ -55,9 +55,31 @@ export const getProfile = () => request("/profile");
 
 export const getUserProfile = (userId) => request(`/user/${userId}`);
 
-export const updateProfile = (body) =>
-  request("/update_profile", { method: "PATCH", body: JSON.stringify(body) });
+export const updateProfile = async (data) => {
+    const isFormData = data instanceof FormData;
+    const url = `${BASE}/update_profile`;
 
+    const options = {
+        method: 'PATCH',
+        credentials: 'include',
+        body: isFormData ? data : JSON.stringify(data)
+    };
+
+    // FormData sets its own Content-Type with boundary
+    // JSON needs Content-Type manually
+    if (!isFormData) {
+        options.headers = { 'Content-Type': 'application/json' };
+    }
+
+    const res = await fetch(url, options);
+    const json = await res.json();
+
+    if (!res.ok) {
+        throw new Error(json.message || 'Update failed');
+    }
+
+    return json;
+};
 // ── SEARCH ────────────────────────────────────────────────────────────────────
 export const searchUsers = (q) =>
   request(`/search/users?q=${encodeURIComponent(q)}`);

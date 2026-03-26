@@ -3,3 +3,5 @@ package-lock.json
 data/
 # Ignore MongoDB data folder
 mongodb server/data/
+backend/.env
+.env
