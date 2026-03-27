@@ -1,18 +1,146 @@
-| Feature                 | Endpoint/Event                         | Description                                      |
-|-------------------------|----------------------------------------|--------------------------------------------------|
-| Notification System     | GET /notifications                     | Paginated notifications with unread count        |
-| Mark Read               | PATCH /notifications/read              | Mark specific or all notifications as read       |
-| Clear Notifications     | DELETE /notifications/clear            | Clear all notifications                          |
-| Unread Count            | GET /notifications/unread-count        | Quick unread badge count                         |
-| User Search             | GET /search/users?q=                   | Search users by username                         |
-| View User Profile       | GET /user/:userId                      | View another user's profile with relationship status |
-| Leaderboard             | GET /leaderboard                       | Top users by rank                                |
-| Suggested Users         | GET /suggested-users                   | Users with common interests sorted by rank       |
-| Block User              | PATCH /block/:userId                   | Block/unblock, auto-unfollows                    |
-| Comment Likes           | PATCH /comment/:commentId/like         | Like/unlike comments                             |
-| Typing Indicator        | Socket typing event                    | Shows when partner is typing                     |
-| Cancel Waiting          | Socket cancelWaiting                   | Leave matchmaking queue                          |
-| Online/Offline Status   | Socket userOnline/userOffline          | Friends see when you connect/disconnect          |
-| New Post Notification   | Auto on post creation                  | All followers get notified                       |
-| Profile Bio & Avatar    | PATCH /update_profile                  | Bio and avatar fields                            |
-| Paginated Feed          | GET /feed?page=1&limit=20              | Infinite scroll support                          |
+# Hangout
+
+Hangout is a full-stack real-time social communication platform that combines random video and text chat matchmaking with a complete social networking experience. Users create accounts, define their interests, and get intelligently matched with strangers who share similar passions using a multi-factor scoring algorithm that considers common interests, user rank, and match history. Beyond random matching, the platform supports direct friend-to-friend chat requests, WebRTC-powered video and audio calls, a community feed with posts and comments, a follower/following system with automatic friend detection on mutual follows, a heart-based ranking and leaderboard system, real-time notifications delivered over WebSockets, saved chat history, user search and discovery, avatar uploads to AWS S3, and a fully responsive dark-themed UI built with React and Tailwind CSS — all orchestrated through a Node.js/Express backend with MongoDB persistence and Socket.IO for bidirectional real-time communication.
+
+---
+
+## Step-by-Step Run Instructions (Docker Compose)
+
+### Prerequisites
+
+- **Docker** version 20.10 or higher
+- **Docker Compose** version 2.0 or higher
+- **Git** installed on your machine
+- **(Optional)** AWS account with S3 bucket for avatar uploads
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/devwithanandhukannan/Hangout.git
+cd hangout
+```
+
+### Step 2: Review the Project Structure
+
+Ensure your directory looks like this:
+
+```
+hangout/
+├── backend/
+│   ├── server.js
+│   ├── model.js
+│   ├── middleware/
+│   │   └── auth.js
+│   ├── package.json
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── ChatHistoryPage.jsx
+│   │   │   ├── ChatPage.jsx
+│   │   │   ├── DashboardPage.jsx
+│   │   │   ├── FeedPage.jsx
+│   │   │   ├── ForgotPasswordPage.jsx
+│   │   │   ├── LandingPage.jsx
+│   │   │   ├── LoginPage.jsx
+│   │   │   ├── PostPage.jsx
+│   │   │   ├── SettingsPage.jsx
+│   │   │   └── SignupPage.jsx
+│   │   ├── api.js
+│   │   ├── AuthContext.jsx
+│   │   ├── SocketContext.jsx
+│   │   └── Toast.jsx
+│   ├── public/
+│   ├── package.json
+│   └── Dockerfile
+├── documentation/
+│   ├── 01-project-description.md
+│   ├── 02-scope-and-features.md
+│   ├── 03-conclusion-and-requirements.md
+│   ├── 04-workflow-diagrams.md
+│   └── 05-future-enhancements.md
+├── docker-compose.yml
+├── .env
+└── README.md
+```
+
+### Step 3: Create the Environment File
+
+Create a `.env` file in the project root:
+
+```bash
+touch .env
+```
+
+Add the following content (replace placeholder values):
+
+```
+PORT=8000
+JWT_SECRET_KEY=<replace-with-a-strong-random-secret-key>
+CLIENT_URL=http://localhost:5173
+MONGO_URI=mongodb://hangout-mongodb:27017/hangout
+AWS_ACCESS_KEY_ID=<your-aws-access-key-id>
+AWS_SECRET_ACCESS_KEY=<your-aws-secret-access-key>
+AWS_REGION=<your-aws-region>
+AWS_S3_BUCKET=<your-s3-bucket-name>
+```
+
+### Step 4: Build and Run with Docker Compose
+
+```bash
+docker-compose up --build -d
+```
+
+Verify all containers are running:
+
+```bash
+docker ps
+```
+
+Expected output:
+
+```
+CONTAINER ID   IMAGE                                     COMMAND                  CREATED        STATUS          PORTS                                         NAMES
+19a7c011e4ca   hangout-frontend                          "docker-entrypoint.s…"   15 hours ago   Up 11 seconds   0.0.0.0:5173->5173/tcp, [::]:5173->5173/tcp   frontend
+b0296c8169ac   hangout-backend                           "docker-entrypoint.s…"   15 hours ago   Up 11 seconds   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp   backend
+6b32c3cf66f5   mongodb/mongodb-community-server:latest   "python3 /usr/local/…"   15 hours ago   Up 11 seconds   27017/tcp                                     hangout-mongodb
+```
+
+### Step 5: Open the Application
+
+Navigate to the application in your browser:
+
+```
+http://localhost:5173
+```
+
+### Step 6: Create an Account and Explore
+
+1. Click **Start** on the landing page
+2. Click **Create a Hangout account**
+3. Fill in username, email, and password
+4. Add interests on the Dashboard
+5. Click **Go** to start random matchmaking
+6. Open a second browser or incognito window to test with two users simultaneously
+
+### Step 7: Stopping the Application
+
+```bash
+# Stop all containers
+docker-compose down
+
+# Stop and delete all data (including database)
+docker-compose down -v
+
+# Stop, delete data, and remove images
+docker-compose down -v --rmi all
+```
+
+---
+
+## Troubleshooting
+
+- **Port conflicts**: If ports 5173 or 8000 are already in use, modify the port mappings in `docker-compose.yml`
+- **MongoDB connection issues**: Ensure the `MONGO_URI` in `.env` uses the service name `hangout-mongodb` as shown
+- **AWS S3 errors**: Avatar uploads require valid AWS credentials. The app will function without them, but avatar features will be disabled
+- **WebSocket failures**: Verify `CLIENT_URL` matches your frontend address and that no firewall blocks WebSocket connections
