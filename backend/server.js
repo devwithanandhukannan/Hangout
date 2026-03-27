@@ -9,12 +9,15 @@ import { Server } from 'socket.io';
 import { authMiddleware, socketAuthMiddleware } from './middleware/auth.js';
 import {
     activeUsers, busyUsers, waitingQueue,
-    Chat, Comment, Post, User, Notification, MatchHistory
+    Chat, Comment, Post, User, Notification, MatchHistory,
+    otpStore
 } from './model.js';
 import mongoose from 'mongoose';
 import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import multer from 'multer';
 import multerS3 from 'multer-s3';
+import { sendEmail } from './email_service.js';
+import { log } from 'console';
 
 dotenv.config();
 
@@ -70,7 +73,7 @@ app.use(cors({
 }));
 
 // Database connection
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('MongoDB connected'))
     .catch(err => console.error('MongoDB connection error:', err));
 
@@ -453,6 +456,8 @@ async function calculateMatchScore(userId1, userId2) {
 */
 
 app.post('/signup', async (req, res) => {
+    console.log('reached');
+    
     try {
         const { username, password, email } = req.body;
 
@@ -764,6 +769,62 @@ app.get('/posts/user/:userId', authMiddleware, async (req, res) => {
     }
 });
 
+/*
+=================================================================
+                        EMAIL ROUTE
+=================================================================
+*/
+app.post("/forget-email", async (req, res) => {
+    const { email } = req.body;
+
+    // Check if user exists
+    const user = await User.findOne({ email });
+    if (!user) {
+        return res.status(404).json({ message: "Email not found" });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Store OTP with expiration (5 min)
+    otpStore.set(email, { otp, expires: Date.now() + 5 * 60 * 1000 });
+
+    try {
+        await sendEmail(email, "Your OTP for Hangout", `Your OTP is: ${otp}`);
+        res.json({ message: "OTP sent" });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Failed to send OTP", error: error.message });
+    }
+});
+app.post("/verify-otp", (req, res) => {
+    const { email, otp } = req.body;
+
+    const record = otpStore.get(email);
+
+    if (!record) return res.status(400).json({ message: "No OTP found" });
+    if (Date.now() > record.expires) return res.status(400).json({ message: "OTP expired" });
+    if (record.otp !== otp) return res.status(400).json({ message: "Invalid OTP" });
+
+    res.json({ message: "OTP verified" });
+});
+app.post("/reset-password", async (req, res) => {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user.password = hashedPassword;
+
+    await user.save();
+
+    // Remove OTP from store
+    otpStore.delete(email);
+
+    res.json({ message: "Password updated successfully" });
+});
 /*
 =================================================================
                         FEED ROUTE
