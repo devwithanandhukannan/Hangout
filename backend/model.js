@@ -19,6 +19,7 @@ const userSchema = new mongoose.Schema({
     isOnline: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
 });
+export const otpStore = new Map();
 
 // Index for matching algorithm
 userSchema.index({ 'rank.count': -1 });
