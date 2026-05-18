@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { sendOtp, verifyOtp, resetPassword } from "../api";
+import { FaEnvelope, FaKey, FaLock, FaArrowRight, FaArrowLeft } from "react-icons/fa";
 
 export default function ForgotPasswordPage() {
     const navigate = useNavigate();
@@ -80,11 +81,8 @@ export default function ForgotPasswordPage() {
         setLoading(true);
         try {
             await resetPassword(email, password);
-            showMessage(
-                "🎉 Password updated successfully! Redirecting…",
-                "success"
-            );
-            setTimeout(() => navigate("/login"), 2000);
+            showMessage("Password updated successfully!", "success");
+            setTimeout(() => navigate("/login"), 1500);
         } catch (error) {
             showMessage(error.message);
         } finally {
@@ -111,183 +109,111 @@ export default function ForgotPasswordPage() {
         setOtp("");
     };
 
-    // ── Spinner component ────────────────────────────────────────────────
     const Spinner = () => (
         <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
     );
 
     return (
-        <div className="min-h-screen bg-black text-white antialiased flex flex-col relative overflow-hidden">
-            {/* Background gradient */}
-            <div className="pointer-events-none absolute inset-0 -z-10 opacity-60 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.12),transparent_60%),radial-gradient(circle_at_bottom,_rgba(255,255,255,0.08),transparent_65%)]" />
+        <div className="min-h-screen bg-[#030303] text-white antialiased flex flex-col relative overflow-hidden">
+            {/* Background radial glow */}
+            <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-500/5 blur-[120px] pointer-events-none pulse-glow-bg" />
+            <div className="absolute bottom-[-15%] left-[-10%] w-[50%] h-[50%] rounded-full bg-rose-500/5 blur-[120px] pointer-events-none pulse-glow-bg" style={{ animationDelay: "-4s" }} />
 
-            {/* Header */}
-            <header className="w-full border-b border-white/10">
-                <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between text-sm">
-                    <div className="font-semibold tracking-tight text-white/80">
-                        Hangout
-                    </div>
-                    <nav className="flex items-center gap-4 text-xs sm:text-sm text-white/70">
-                        <a
-                            href="#"
-                            className="hover:text-white transition-colors"
-                        >
-                            About
-                        </a>
-                        <a
-                            href="#"
-                            className="hover:text-white transition-colors"
-                        >
-                            Privacy &amp; Security
-                        </a>
+            <header className="w-full border-b border-white/5 bg-black/20 backdrop-blur-md z-10">
+                <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+                    <Link to="/" className="flex items-center gap-2">
+                        <div className="h-6 w-6 rounded-lg bg-white flex items-center justify-center font-black text-black text-xs tracking-wider">H</div>
+                        <span className="font-bold tracking-tight text-sm text-white/90">Hangout</span>
+                    </Link>
+                    <nav className="flex items-center gap-6 text-xs text-white/50">
+                        <Link to="/login" className="hover:text-white transition-colors">Sign In</Link>
                     </nav>
                 </div>
             </header>
 
-            {/* Toast */}
             {message.text && (
                 <div
-                    className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50
-                        px-6 py-3 rounded-full text-sm font-medium
-                        backdrop-blur-lg border transition-all ${
-                            message.type === "success"
-                                ? "bg-green-500/20 border-green-500/50 text-green-100"
-                                : "bg-red-500/20 border-red-500/50 text-red-100"
-                        }`}
+                    className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-full text-xs font-semibold backdrop-blur-lg border transition-all ${
+                        message.type === "success"
+                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+                            : "bg-rose-500/10 border-rose-500/20 text-rose-300"
+                    }`}
                 >
                     {message.text}
                 </div>
             )}
 
-            <main className="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 py-10">
-                <div
-                    className="w-full max-w-md bg-white/5 border border-white/10
-                        rounded-3xl backdrop-blur-xl
-                        shadow-[0_0_45px_rgba(0,0,0,0.85)]
-                        px-6 sm:px-8 py-8 space-y-6"
-                >
-                    {/* ────────────── STEP 1: EMAIL ────────────── */}
+            <main className="flex-1 flex items-center justify-center px-6 py-10 z-10">
+                <div className="w-full max-w-[420px] glass-panel rounded-3xl p-8 space-y-6 animate-float" style={{ animationDuration: "12s" }}>
+                    
+                    {/* ── STEP 1: EMAIL ── */}
                     {step === "forgot" && (
                         <div className="space-y-6">
                             <div className="text-center space-y-2">
-                                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-                                    Forgot your password?
+                                <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent">
+                                    Forgot password?
                                 </h1>
-                                <p className="text-xs sm:text-sm text-white/60">
-                                    Enter the email you use for Hangout.
-                                    We'll send a 6-digit OTP to reset
-                                    your password.
+                                <p className="text-xs text-white/50">
+                                    Enter your registered email address. We will send you a 6-digit OTP to reset your password.
                                 </p>
                             </div>
 
-                            <form
-                                onSubmit={handleSendOtp}
-                                className="space-y-5"
-                            >
+                            <form onSubmit={handleSendOtp} className="space-y-4">
                                 <div className="space-y-1.5">
-                                    <label
-                                        htmlFor="reset-email"
-                                        className="block text-xs font-medium tracking-wide text-white/70"
-                                    >
-                                        Email address
+                                    <label htmlFor="reset-email" className="block text-xs font-semibold tracking-wide text-white/60">
+                                        Email Address
                                     </label>
-                                    <input
-                                        id="reset-email"
-                                        type="email"
-                                        required
-                                        value={email}
-                                        onChange={(e) =>
-                                            setEmail(e.target.value)
-                                        }
-                                        placeholder="hello@hangout.com"
-                                        className="w-full rounded-xl bg-black/40
-                                            border border-white/20 px-3 py-2.5
-                                            text-sm outline-none
-                                            focus:border-white focus:bg-black/60
-                                            transition-colors"
-                                    />
+                                    <div className="relative">
+                                        <FaEnvelope className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 text-xs" />
+                                        <input
+                                            id="reset-email"
+                                            type="email"
+                                            required
+                                            placeholder="hello@hangout.com"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            className="w-full rounded-xl glass-input pl-10 pr-4 py-3 text-xs outline-none focus:border-white focus:bg-white/[0.06]"
+                                        />
+                                    </div>
                                 </div>
 
                                 <button
                                     type="submit"
                                     disabled={loading}
-                                    className="w-full inline-flex items-center
-                                        justify-center rounded-full bg-white
-                                        text-black text-sm font-semibold py-2.5
-                                        border border-white hover:bg-black
-                                        hover:text-white transition-colors
-                                        disabled:opacity-50
-                                        disabled:cursor-not-allowed gap-2"
+                                    className="w-full glass-btn-primary py-3 rounded-full text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
                                 >
-                                    {loading ? (
-                                        <Spinner />
-                                    ) : (
-                                        "Send reset email"
-                                    )}
+                                    {loading ? <Spinner /> : "Send OTP"}
+                                    <FaArrowRight size={10} />
                                 </button>
                             </form>
 
-                            <p className="text-xs text-center text-white/60">
-                                Remembered your password?{" "}
-                                <Link
-                                    to="/login"
-                                    className="text-white hover:underline font-medium"
-                                >
+                            <p className="text-xs text-center text-white/50">
+                                <Link to="/login" className="text-white hover:underline font-semibold transition-colors">
                                     Back to login
                                 </Link>
-                                .
                             </p>
                         </div>
                     )}
 
-                    {/* ────────────── STEP 2: OTP ────────────── */}
+                    {/* ── STEP 2: OTP ── */}
                     {step === "otp" && (
                         <div className="space-y-6">
                             <div className="text-center space-y-2">
-                                <div
-                                    className="mx-auto w-12 h-12 rounded-full
-                                        bg-white/10 flex items-center
-                                        justify-center mb-1"
-                                >
-                                    <svg
-                                        className="w-5 h-5 text-white/80"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743
-                                               5.743L11 17H9v2H7v2H4a1 1 0
-                                               01-1-1v-2.586a1 1 0
-                                               01.293-.707l5.964-5.964A6 6 0 1121 9z"
-                                        />
-                                    </svg>
+                                <div className="mx-auto w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center mb-1">
+                                    <FaKey className="text-white/70 text-sm" />
                                 </div>
-                                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
+                                <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent">
                                     Verify OTP
                                 </h1>
-                                <p className="text-xs sm:text-sm text-white/60">
-                                    We sent a 6-digit code to{" "}
-                                    <span className="text-white font-medium">
-                                        {email}
-                                    </span>
-                                    . Please enter it below.
+                                <p className="text-xs text-white/50">
+                                    We sent a 6-digit code to <span className="text-white font-medium">{email}</span>.
                                 </p>
                             </div>
 
-                            <form
-                                onSubmit={handleVerifyOtp}
-                                className="space-y-5"
-                            >
+                            <form onSubmit={handleVerifyOtp} className="space-y-4">
                                 <div className="space-y-1.5">
-                                    <label
-                                        htmlFor="otpCode"
-                                        className="block text-xs font-medium tracking-wide text-white/70"
-                                    >
-                                        One-time password
+                                    <label htmlFor="otpCode" className="block text-xs font-semibold tracking-wide text-white/60">
+                                        One-Time Password
                                     </label>
                                     <input
                                         id="otpCode"
@@ -295,185 +221,108 @@ export default function ForgotPasswordPage() {
                                         inputMode="numeric"
                                         maxLength={6}
                                         value={otp}
-                                        onChange={(e) =>
-                                            setOtp(
-                                                e.target.value
-                                                    .replace(/[^0-9]/g, "")
-                                                    .slice(0, 6)
-                                            )
-                                        }
+                                        onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
                                         placeholder="000000"
-                                        className="w-full rounded-xl bg-black/40
-                                            border border-white/20 px-3 py-2.5
-                                            text-sm text-center tracking-wider
-                                            font-mono text-base outline-none
-                                            focus:border-white focus:bg-black/60
-                                            transition-colors"
+                                        className="w-full rounded-xl glass-input py-3 text-sm text-center tracking-[0.25em] font-mono outline-none focus:border-white focus:bg-white/[0.06]"
                                     />
-                                    <p className="text-[11px] text-white/40 text-right">
-                                        Valid for 5 minutes
-                                    </p>
+                                    <p className="text-[10px] text-white/30 text-right">Valid for 5 minutes</p>
                                 </div>
 
                                 <button
                                     type="submit"
                                     disabled={loading}
-                                    className="w-full inline-flex items-center
-                                        justify-center rounded-full bg-white
-                                        text-black text-sm font-semibold py-2.5
-                                        border border-white hover:bg-black
-                                        hover:text-white transition-colors
-                                        disabled:opacity-50
-                                        disabled:cursor-not-allowed gap-2"
+                                    className="w-full glass-btn-primary py-3 rounded-full text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
                                 >
-                                    {loading ? <Spinner /> : "Verify OTP"}
+                                    {loading ? <Spinner /> : "Verify Code"}
+                                    <FaArrowRight size={10} />
                                 </button>
 
-                                <div className="text-center">
+                                <div className="text-center pt-1">
                                     <button
                                         type="button"
                                         onClick={handleResendOtp}
                                         disabled={loading}
-                                        className="text-xs text-white/60
-                                            hover:text-white transition-colors
-                                            underline underline-offset-2
-                                            disabled:opacity-50"
+                                        className="text-[10px] text-white/50 hover:text-white transition-colors underline underline-offset-2"
                                     >
                                         Resend OTP
                                     </button>
                                 </div>
                             </form>
 
-                            <p className="text-xs text-center text-white/60">
+                            <p className="text-xs text-center text-white/50">
                                 <button
                                     onClick={handleBackToEmail}
-                                    className="text-white/70 hover:text-white transition-colors"
+                                    className="text-white/60 hover:text-white transition-colors flex items-center gap-1 mx-auto text-xs"
                                 >
-                                    ← Use different email
+                                    <FaArrowLeft size={10} />
+                                    Change Email
                                 </button>
                             </p>
                         </div>
                     )}
 
-                    {/* ────────────── STEP 3: RESET ────────────── */}
+                    {/* ── STEP 3: RESET ── */}
                     {step === "reset" && (
                         <div className="space-y-6">
                             <div className="text-center space-y-2">
-                                <div
-                                    className="mx-auto w-12 h-12 rounded-full
-                                        bg-white/10 flex items-center
-                                        justify-center mb-1"
-                                >
-                                    <svg
-                                        className="w-5 h-5 text-white/80"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M12 15v2m-6-4h12a2 2 0 012
-                                               2v6a2 2 0 01-2 2H6a2 2 0
-                                               01-2-2v-6a2 2 0 012-2zm10-10V5a2
-                                               2 0 00-2-2h-4a2 2 0 00-2 2v2h8z"
-                                        />
-                                    </svg>
+                                <div className="mx-auto w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center mb-1">
+                                    <FaLock className="text-white/70 text-sm" />
                                 </div>
-                                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-                                    Create new password
+                                <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent">
+                                    New password
                                 </h1>
-                                <p className="text-xs sm:text-sm text-white/60">
-                                    Choose a strong password for{" "}
-                                    <span className="text-white font-medium">
-                                        {email}
-                                    </span>
+                                <p className="text-xs text-white/50">
+                                    Set a strong password for your account.
                                 </p>
                             </div>
 
-                            <form
-                                onSubmit={handleResetPassword}
-                                className="space-y-5"
-                            >
+                            <form onSubmit={handleResetPassword} className="space-y-4">
                                 <div className="space-y-3">
-                                    <div>
-                                        <label
-                                            htmlFor="newPassword"
-                                            className="block text-xs font-medium tracking-wide text-white/70 mb-1"
-                                        >
-                                            New password
+                                    <div className="space-y-1.5">
+                                        <label htmlFor="newPassword" className="block text-xs font-semibold tracking-wide text-white/60">
+                                            New Password
                                         </label>
-                                        <input
-                                            id="newPassword"
-                                            type="password"
-                                            value={password}
-                                            onChange={(e) =>
-                                                setPassword(e.target.value)
-                                            }
-                                            placeholder="••••••••"
-                                            className="w-full rounded-xl bg-black/40
-                                                border border-white/20 px-3 py-2.5
-                                                text-sm outline-none
-                                                focus:border-white
-                                                focus:bg-black/60
-                                                transition-colors"
-                                        />
+                                        <div className="relative">
+                                            <FaLock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 text-xs" />
+                                            <input
+                                                id="newPassword"
+                                                type="password"
+                                                required
+                                                placeholder="••••••••"
+                                                value={password}
+                                                onChange={(e) => setPassword(e.target.value)}
+                                                className="w-full rounded-xl glass-input pl-10 pr-4 py-3 text-xs outline-none focus:border-white focus:bg-white/[0.06]"
+                                            />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label
-                                            htmlFor="confirmPassword"
-                                            className="block text-xs font-medium tracking-wide text-white/70 mb-1"
-                                        >
-                                            Confirm password
+                                    <div className="space-y-1.5">
+                                        <label htmlFor="confirmPassword" className="block text-xs font-semibold tracking-wide text-white/60">
+                                            Confirm Password
                                         </label>
-                                        <input
-                                            id="confirmPassword"
-                                            type="password"
-                                            value={confirmPassword}
-                                            onChange={(e) =>
-                                                setConfirmPassword(
-                                                    e.target.value
-                                                )
-                                            }
-                                            placeholder="••••••••"
-                                            className="w-full rounded-xl bg-black/40
-                                                border border-white/20 px-3 py-2.5
-                                                text-sm outline-none
-                                                focus:border-white
-                                                focus:bg-black/60
-                                                transition-colors"
-                                        />
+                                        <div className="relative">
+                                            <FaLock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 text-xs" />
+                                            <input
+                                                id="confirmPassword"
+                                                type="password"
+                                                required
+                                                placeholder="••••••••"
+                                                value={confirmPassword}
+                                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                                className="w-full rounded-xl glass-input pl-10 pr-4 py-3 text-xs outline-none focus:border-white focus:bg-white/[0.06]"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 
                                 <button
                                     type="submit"
                                     disabled={loading}
-                                    className="w-full inline-flex items-center
-                                        justify-center rounded-full bg-white
-                                        text-black text-sm font-semibold py-2.5
-                                        border border-white hover:bg-black
-                                        hover:text-white transition-colors
-                                        disabled:opacity-50
-                                        disabled:cursor-not-allowed gap-2"
+                                    className="w-full glass-btn-primary py-3 rounded-full text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
                                 >
-                                    {loading ? (
-                                        <Spinner />
-                                    ) : (
-                                        "Reset password"
-                                    )}
+                                    {loading ? <Spinner /> : "Reset Password"}
+                                    <FaArrowRight size={10} />
                                 </button>
                             </form>
-
-                            <p className="text-xs text-center text-white/60">
-                                <Link
-                                    to="/login"
-                                    className="text-white hover:underline font-medium"
-                                >
-                                    Return to login
-                                </Link>
-                            </p>
                         </div>
                     )}
                 </div>

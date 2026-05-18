@@ -48,8 +48,13 @@ export function SocketProvider({ children }) {
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Shared ref so ChatPage can read the last "chatStarted" payload
-  // delivered by a direct-chat accept while ChatPage is mounting
+  // delivered by a direct-chat accept while ChatPage is mounting.
+  // This buffers the event so it isn't lost during navigation/mount.
   const lastChatStartedRef = useRef(null);
+
+  // Pending requests map: roomId → { fromId, fromName } — used to
+  // deduplicate / cancel stale requests when A navigates away.
+  const pendingRequestsRef = useRef(new Map());
 
   // ── Connect / reconnect when auth state changes ─────────────────────────
   useEffect(() => {
@@ -147,6 +152,9 @@ export function SocketProvider({ children }) {
     socket.on("directChatRequest", ({ fromId, fromName, room }) => {
       console.log("[Socket] directChatRequest from:", fromName, fromId);
 
+      // Store the pending request so we can dismiss it if cancelled
+      pendingRequestsRef.current.set(room, { fromId, fromName });
+
       toast.action(
         `${fromName || "A friend"} wants to chat with you!`,
         [
@@ -154,11 +162,19 @@ export function SocketProvider({ children }) {
             label : "✓ Accept",
             style : "primary",
             fn    : () => {
-              // Tell server we accept → it will emit "chatStarted" to both
-              socket.emit("directChatAccept", { toId: fromId, room });
-              // Navigate to /chat; ChatPage listens for "chatStarted"
+              // Guard: only accept if request is still pending (not cancelled)
+              if (!pendingRequestsRef.current.has(room)) return;
+              pendingRequestsRef.current.delete(room);
+
+              // Navigate to /chat with accepted=true so ChatPage knows
+              // we are the ACCEPTER and should NOT show waiting_accept UI.
               navigate("/chat", {
-                state: { friendId: fromId, friendName: fromName, directRoom: room },
+                state: {
+                  friendId   : fromId,
+                  friendName : fromName,
+                  directRoom : room,
+                  accepted   : true,   // ← key flag: B is the accepter
+                },
               });
             },
           },
@@ -166,6 +182,7 @@ export function SocketProvider({ children }) {
             label : "✕ Decline",
             style : "secondary",
             fn    : () => {
+              pendingRequestsRef.current.delete(room);
               socket.emit("directChatDecline", { toId: fromId, room });
               toast.notif(`Declined chat request from ${fromName}`);
             },
@@ -176,13 +193,21 @@ export function SocketProvider({ children }) {
     });
 
     // ── DIRECT CHAT DECLINED — received by User A ─────────────────────────
-    socket.on("directChatDeclined", ({ byName }) => {
+    socket.on("directChatDeclined", ({ byName, room }) => {
       toast.error(`${byName || "Friend"} declined your chat request.`);
     });
 
     // ── DIRECT CHAT CANCELLED — received by User B ────────────────────────
-    socket.on("directChatCancelled", ({ byName }) => {
+    socket.on("directChatCancelled", ({ byName, room }) => {
+      // Remove the pending request so stale Accept clicks do nothing
+      if (room) pendingRequestsRef.current.delete(room);
       toast.notif(`${byName || "Friend"} cancelled their chat request.`);
+    });
+
+    // ── chatStarted — buffer globally so ChatPage catches it even after mount
+    socket.on("chatStarted", (payload) => {
+      // Store so ChatPage can drain this on mount if it missed the event
+      lastChatStartedRef.current = payload;
     });
 
     // ── Friend is offline ─────────────────────────────────────────────────
@@ -205,6 +230,7 @@ export function SocketProvider({ children }) {
       socket.off("directChatDeclined");
       socket.off("directChatCancelled");
       socket.off("directChatUserOffline");
+      socket.off("chatStarted");
       // NOTE: we do NOT call socket.disconnect() here — the socket must
       // survive page navigation. It is only disconnected when user logs out
       // (user becomes null above).

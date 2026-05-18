@@ -2,14 +2,15 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { getChats, deleteChat } from "../api";
 import { useAuth } from "../AuthContext";
+import { 
+  FaHome, FaHistory, FaStar, FaTrashAlt, FaFolderOpen, 
+  FaComments, FaChevronLeft, FaSearch 
+} from "react-icons/fa";
+import { CgCommunity } from "react-icons/cg";
+import { IoIosAddCircle, IoIosSettings } from "react-icons/io";
 
-// The backend saves chatData as an object: { "0": { user, message, time }, "1": ... }
-// OR as an array: [{ senderId, text }, ...]
-// Normalize both into: [{ from: "me"|"partner", text, time }]
 function normalizeMessages(rawMessages, myId) {
   if (!rawMessages) return [];
-
-  // If it's an object (from the working HTML test page format)
   if (!Array.isArray(rawMessages) && typeof rawMessages === "object") {
     return Object.values(rawMessages).map((m) => ({
       from: m.user === "me" ? "me" : "partner",
@@ -17,8 +18,6 @@ function normalizeMessages(rawMessages, myId) {
       time: m.time || "",
     }));
   }
-
-  // If it's an array (from the React save-chat format: [{ senderId, text }])
   if (Array.isArray(rawMessages)) {
     return rawMessages.map((m) => {
       const senderId = typeof m.senderId === "object" ? m.senderId?._id || m.senderId?.id : m.senderId;
@@ -111,44 +110,80 @@ export default function ChatHistoryPage() {
     : { name: "", initial: "?" };
 
   return (
-    <div className="h-screen flex flex-col bg-black text-white antialiased overflow-hidden">
+    <div className="h-screen flex flex-col bg-[#030303] text-white antialiased overflow-hidden pb-20 md:pb-0">
+      {/* Background glow elements */}
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-500/5 blur-[120px] pointer-events-none pulse-glow-bg" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-rose-500/5 blur-[120px] pointer-events-none pulse-glow-bg" style={{ animationDelay: "-3s" }} />
 
       {/* Header */}
-      <div className="flex-shrink-0 px-4 sm:px-6 py-3 flex items-center gap-3 border-b border-white/10 bg-black/60 backdrop-blur">
-        <Link to="/dashboard"
-          className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded-full border border-white/30 hover:bg-white hover:text-black transition">
-          ←
-        </Link>
-        <h1 className="text-base font-semibold">Chat History</h1>
-        <span className="text-[11px] text-gray-500">
-          {chats.length} saved chat{chats.length !== 1 ? "s" : ""}
-        </span>
-      </div>
+      <header className="flex-shrink-0 border-b border-white/5 bg-black/30 backdrop-blur-md z-30">
+        <div className="px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-6 w-6 rounded-lg bg-white flex items-center justify-center font-black text-black text-xs tracking-wider">H</div>
+            <span className="font-bold tracking-tight text-sm text-white/90">Hangout</span>
+          </div>
+          <span className="text-[10px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-white/60 font-semibold tracking-wide">
+            {chats.length} Saved Chat{chats.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+      </header>
 
       {/* Body */}
-      <main className="flex-1 min-h-0 px-2 sm:px-4 py-4 flex gap-4 overflow-hidden">
+      <main className="flex-1 min-h-0 px-4 sm:px-6 py-5 flex gap-5 overflow-hidden max-w-7xl mx-auto w-full z-10">
 
-        {/* ── Sidebar ──────────────────────────────────────────────────────── */}
-        <aside className="w-60 sm:w-64 flex-shrink-0 flex flex-col bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-          <div className="flex-shrink-0 p-3 border-b border-white/10">
-            <div className="text-xs font-semibold mb-2">Saved Chats</div>
-            <input type="text" placeholder="Search by partner"
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              className="w-full rounded-xl bg-black/60 border border-white/20 px-3 py-2 text-xs outline-none placeholder:text-gray-500" />
+        {/* Left Sidebar */}
+        <aside className="w-60 flex-shrink-0 hidden md:flex flex-col glass-panel rounded-3xl overflow-hidden p-4 space-y-6">
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-2.5">Workspace</div>
+            <div className="space-y-0.5">
+              <Link to="/dashboard"
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/5 text-xs font-semibold text-white/60 hover:text-white transition-all">
+                <FaHome className="text-white/50" /> Home
+              </Link>
+              <Link to="/feed"
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/5 text-xs font-semibold text-white/60 hover:text-white transition-all">
+                <CgCommunity className="text-white/50" size={15} /> Community Feed
+              </Link>
+              <Link to="/post"
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/5 text-xs font-semibold text-white/60 hover:text-white transition-all">
+                <IoIosAddCircle className="text-white/50" size={16} /> Post Something
+              </Link>
+              <Link to="/chat-history"
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 bg-white/5 border border-white/5 text-xs font-semibold text-white transition-all">
+                <FaHistory className="text-white/85" size={13} /> Chat History
+              </Link>
+              <Link to="/settings"
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/5 text-xs font-semibold text-white/60 hover:text-white transition-all">
+                <IoIosSettings className="text-white/50" size={15} /> Settings
+              </Link>
+            </div>
+          </div>
+        </aside>
+
+        {/* Sidebar Saved Chats List Panel */}
+        <aside className="w-64 flex-shrink-0 flex flex-col glass-panel rounded-3xl overflow-hidden p-4 gap-4">
+          <div className="space-y-3">
+            <div className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Saved Sessions</div>
+            <div className="relative">
+              <FaSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/20 text-xs" />
+              <input type="text" placeholder="Search by partner..."
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                className="w-full rounded-xl glass-input pl-9 pr-4 py-2.5 text-xs outline-none placeholder:text-white/20" />
+            </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
             {loading && (
               <div className="flex items-center justify-center py-10">
-                <div className="h-5 w-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                <div className="h-5 w-5 rounded-full border border-white border-t-transparent animate-spin" />
               </div>
             )}
             {!loading && filteredChats.length === 0 && (
-              <div className="text-[11px] text-gray-400 px-2 py-6 text-center">
+              <div className="text-[10px] text-white/30 py-10 text-center">
                 {chats.length === 0
-                  ? "No saved chats yet. Save a chat after your next Hangout!"
-                  : "No chats match your search."}
+                  ? "No saved chat sessions found."
+                  : "No matches found."}
               </div>
             )}
             {filteredChats.map((chat) => {
@@ -160,18 +195,18 @@ export default function ChatHistoryPage() {
 
               return (
                 <div key={cid} onClick={() => setSelectedChat(chat)}
-                  className={`rounded-xl px-2.5 py-2 cursor-pointer transition ${isSelected ? "bg-white/10" : "hover:bg-white/5"}`}>
-                  <div className="flex items-center gap-2">
-                    <div className="h-7 w-7 flex-shrink-0 rounded-full bg-white text-black flex items-center justify-center text-xs font-bold">
+                  className={`rounded-2xl p-3 cursor-pointer transition-all border border-transparent ${isSelected ? "bg-white/10 border-white/5" : "hover:bg-white/5"}`}>
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 flex-shrink-0 rounded-xl bg-white text-black flex items-center justify-center text-xs font-bold">
                       {initial}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
-                        <span className="text-xs font-semibold truncate">{name}</span>
-                        <span className="text-[10px] text-gray-500 flex-shrink-0">{msgs.length}m</span>
+                        <span className="text-xs font-bold text-white/90 truncate">{name}</span>
+                        <span className="text-[9px] text-white/30 flex-shrink-0">{msgs.length}m</span>
                       </div>
-                      <div className="text-[11px] text-gray-400 truncate">{lastMsg}</div>
-                      <div className="text-[10px] text-gray-600 mt-0.5">{formatDate(chat.createdAt)}</div>
+                      <div className="text-[10px] text-white/40 truncate">{lastMsg}</div>
+                      <div className="text-[9px] text-white/30 mt-0.5">{formatDate(chat.createdAt)}</div>
                     </div>
                   </div>
                 </div>
@@ -180,80 +215,80 @@ export default function ChatHistoryPage() {
           </div>
         </aside>
 
-        {/* ── Main panel ───────────────────────────────────────────────────── */}
-        <section className="flex-1 min-w-0 flex flex-col bg-white/5 border border-white/10 rounded-2xl overflow-hidden px-6 py-5">
+        {/* Main Conversation Details Panel */}
+        <section className="flex-1 min-w-0 flex flex-col glass-panel rounded-3xl overflow-hidden p-6 gap-6">
           {error && (
-            <div className="flex-shrink-0 text-xs text-red-400 mb-3 px-3 py-2 bg-red-400/10 rounded-xl border border-red-400/20">
+            <div className="flex-shrink-0 text-xs text-rose-400 mb-3 px-4 py-2.5 bg-rose-500/5 rounded-xl border border-rose-500/20">
               {error}
             </div>
           )}
 
           {!selectedChat ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-sm gap-3">
-              {loading
-                ? <div className="h-7 w-7 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                : <><span className="text-3xl">🗂</span><p>Select a chat to view</p></>
-              }
+            <div className="flex-1 flex flex-col items-center justify-center text-white/30 gap-3 text-center">
+              <FaFolderOpen size={36} className="text-white/20" />
+              <p className="font-semibold text-sm">Select conversation</p>
+              <p className="text-xs max-w-xs leading-relaxed">Choose a chat from the sidebar to review the conversation log.</p>
             </div>
           ) : (
             <>
-              {/* Chat header */}
-              <div className="flex-shrink-0 mb-5 flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <div className="text-base font-semibold flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-white text-black flex items-center justify-center text-xs font-bold">
-                      {selectedPartnerInitial}
-                    </div>
-                    {selectedPartnerName}
+              {/* Active Saved Chat Header */}
+              <div className="flex-shrink-0 flex items-start justify-between gap-4 border-b border-white/5 pb-5 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-xl bg-white text-black flex items-center justify-center text-xs font-bold">
+                    {selectedPartnerInitial}
                   </div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    {selectedChat.createdAt
-                      ? new Date(selectedChat.createdAt).toLocaleDateString("en-US", {
-                          weekday: "long", year: "numeric", month: "long", day: "numeric",
-                        })
-                      : "Date unknown"}
-                    {" · "}
-                    {selectedMessages.length} message{selectedMessages.length !== 1 ? "s" : ""}
+                  <div>
+                    <h2 className="text-sm font-bold text-white/95 truncate leading-snug">{selectedPartnerName}</h2>
+                    <p className="text-[10px] text-white/40 mt-0.5">
+                      {selectedChat.createdAt
+                        ? new Date(selectedChat.createdAt).toLocaleDateString("en-US", {
+                            weekday: "long", year: "numeric", month: "long", day: "numeric",
+                          })
+                        : "Date unknown"}
+                      {" · "}
+                      {selectedMessages.length} message{selectedMessages.length !== 1 ? "s" : ""}
+                    </p>
                   </div>
                 </div>
                 <button
                   onClick={() => handleDelete(selectedChat._id || selectedChat.id)}
                   disabled={deleting}
-                  className="flex-shrink-0 text-xs text-red-400 hover:text-red-300 border border-red-400/30 hover:border-red-300/50 px-3 py-1 rounded-full transition disabled:opacity-50">
-                  {deleting ? "Deleting…" : "Delete chat"}
+                  className="glass-btn px-4 py-2 rounded-full text-xs font-semibold text-rose-400 border-rose-500/20 hover:border-rose-500 hover:bg-rose-500/5 transition-all disabled:opacity-50 flex items-center gap-1.5">
+                  <FaTrashAlt size={10} />
+                  <span>{deleting ? "Deleting..." : "Delete Chat"}</span>
                 </button>
               </div>
 
-              {/* Timeline */}
-              <div className="flex-1 min-h-0 overflow-y-auto relative">
-                <div className="absolute left-4 top-0 bottom-0 w-px bg-white/15 pointer-events-none" />
+              {/* Chat timeline message display */}
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1 no-scrollbar relative">
+                <div className="absolute left-[17px] top-0 bottom-0 w-px bg-white/5 pointer-events-none" />
 
-                <div className="pl-10 space-y-6 pb-4">
+                <div className="space-y-6 pb-4">
                   {selectedMessages.length === 0 ? (
-                    <div className="text-[11px] text-gray-500 py-4">No messages in this chat.</div>
+                    <div className="text-xs text-white/30 py-4 pl-10">No messages saved in this session.</div>
                   ) : (
                     selectedMessages.map((msg, idx) => {
                       const isMe = msg.from === "me";
                       return (
-                        <div key={idx} className="relative">
+                        <div key={idx} className="relative pl-12">
                           {/* Avatar */}
-                          <div className={`absolute -left-9 h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                            isMe ? "bg-white/10 text-white border border-white/20" : "bg-white text-black"
+                          <div className={`absolute left-0 h-9 w-9 rounded-xl flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                            isMe ? "bg-white/10 text-white border border-white/15" : "bg-white text-black"
                           }`}>
                             {isMe ? myInitial : selectedPartnerInitial}
                           </div>
 
                           <div className={isMe ? "text-right" : ""}>
-                            <div className="text-xs font-semibold mb-1 text-gray-300">
+                            <div className="text-[10px] font-semibold text-white/40 mb-1">
                               {isMe ? "You" : selectedPartnerName}
                             </div>
-                            <div className={`inline-block rounded-2xl px-4 py-2 text-sm max-w-xl text-left ${
-                              isMe ? "bg-white text-black" : "bg-black border border-white/10 text-white"
+                            <div className={`inline-block rounded-2xl px-4 py-2.5 text-xs max-w-xl text-left leading-relaxed ${
+                              isMe ? "bg-white text-black font-medium" : "bg-white/5 border border-white/5 text-white/90"
                             }`}>
                               {msg.text}
                             </div>
                             {msg.time && (
-                              <div className="text-[10px] text-gray-600 mt-1">{msg.time}</div>
+                              <div className="text-[9px] text-white/30 mt-1">{msg.time}</div>
                             )}
                           </div>
                         </div>
@@ -266,6 +301,30 @@ export default function ChatHistoryPage() {
           )}
         </section>
       </main>
+
+      {/* Glassmorphic Mobile Bottom Nav */}
+      <div className="md:hidden fixed bottom-5 left-5 right-5 h-16 glass-panel rounded-2xl flex items-center justify-around z-40 px-3">
+        <Link to="/dashboard" className="flex flex-col items-center gap-1 text-white/45 hover:text-white text-xs transition-colors">
+          <FaHome size={18} />
+          <span className="text-[9px] font-medium tracking-wide">Home</span>
+        </Link>
+        <Link to="/feed" className="flex flex-col items-center gap-1 text-white/45 hover:text-white text-xs transition-colors">
+          <CgCommunity size={18} />
+          <span className="text-[9px] font-medium tracking-wide">Feed</span>
+        </Link>
+        <Link to="/post" className="flex flex-col items-center gap-1 text-white/45 hover:text-white text-xs transition-colors">
+          <IoIosAddCircle size={18} />
+          <span className="text-[9px] font-medium tracking-wide">Post</span>
+        </Link>
+        <Link to="/chat-history" className="flex flex-col items-center gap-1 text-white text-xs">
+          <FaHistory size={15} />
+          <span className="text-[9px] font-medium tracking-wide">History</span>
+        </Link>
+        <Link to="/settings" className="flex flex-col items-center gap-1 text-white/45 hover:text-white text-xs transition-colors">
+          <IoIosSettings size={18} />
+          <span className="text-[9px] font-medium tracking-wide">Settings</span>
+        </Link>
+      </div>
     </div>
   );
 }
