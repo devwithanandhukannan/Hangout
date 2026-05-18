@@ -78,7 +78,7 @@ export function SocketProvider({ children }) {
     }
 
     // ── Create socket ─────────────────────────────────────────────────────
-    const socket = io(window.location.origin, {
+    const socket = io(SOCKET_URL, {
       withCredentials : true,          // send httpOnly cookie
       transports      : ["polling", "websocket"], // polling FIRST for auth
       reconnection         : true,

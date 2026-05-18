@@ -1,13 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { SOCKET_URL } from "./config";
+import { API_BASE } from "./config";
 
 const AuthContext = createContext(null);
 
-// In dev the Vite proxy handles /api → localhost:8000.
-// In prod (static build) the proxy is gone so we call the backend directly.
-const isDev     = import.meta.env.DEV;
-const PROF_URL  = isDev ? "/api/profile" : `${SOCKET_URL}/profile`;
-const LOUT_URL  = isDev ? "/api/logout"  : `${SOCKET_URL}/logout`;
+// API_BASE is "/api" in dev (uses Vite proxy) and full backend URL in production
+const PROF_URL  = `${API_BASE}/profile`;
+const LOUT_URL  = `${API_BASE}/logout`;
 
 async function fetchProfile() {
   const res = await fetch(PROF_URL, { credentials: "include" });

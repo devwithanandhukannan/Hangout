@@ -1,7 +1,6 @@
-import { SOCKET_URL } from "./config";
+import { API_BASE } from "./config";
 
-const isDev = import.meta.env.DEV;
-const BASE = isDev ? "/api" : `${SOCKET_URL}`;
+const BASE = API_BASE;
 
 async function request(path, options = {}) {
     const url = `${BASE}${path}`;
