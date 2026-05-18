@@ -33,6 +33,11 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      "/profile": {
+        target: API_BASE_URL,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/:8000/, ""),
+      },
     },
   },
 });
