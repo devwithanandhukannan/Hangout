@@ -89,6 +89,35 @@ export default function ChatPage() {
   const [myRank,          setMyRank]          = useState(
     user?.rank?.count ?? user?.rank ?? 0
   );
+  const [nearbyOnly,      setNearbyOnly]      = useState(false);
+  const [coords,          setCoords]          = useState(null);
+
+  const toggleNearby = useCallback(() => {
+    if (!nearbyOnly) {
+      if (!navigator.geolocation) {
+        toast.error("Geolocation is not supported by your browser.");
+        return;
+      }
+      toast.notif("Requesting location access…");
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCoords({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+          setNearbyOnly(true);
+          toast.success("Location enabled! Matching nearby strangers.");
+        },
+        (error) => {
+          console.error("Location error:", error);
+          toast.error("Location permission denied or unavailable.");
+        }
+      );
+    } else {
+      setNearbyOnly(false);
+      toast.notif("Nearby matching disabled.");
+    }
+  }, [nearbyOnly]);
 
   // Sync refs with state
   useEffect(() => { roomRef.current      = room;      }, [room]);
@@ -430,8 +459,11 @@ export default function ChatPage() {
     setChatStatus("searching");
     setRoom(null); setPartnerId(null);
     resetSession();
-    socket.emit("findChat");
-  }, [resetSession]); // eslint-disable-line
+    const payload = nearbyOnly && coords
+      ? { latitude: coords.latitude, longitude: coords.longitude, nearbyOnly: true }
+      : { nearbyOnly: false };
+    socket.emit("findChat", payload);
+  }, [resetSession, nearbyOnly, coords]); // eslint-disable-line
 
   const cancelWaiting = useCallback(() => {
     socketRef.current?.emit("cancelWaiting");
@@ -811,13 +843,35 @@ export default function ChatPage() {
                       </div>
                     )}
                     {chatStatus === "idle" && (
-                      <button
-                        onClick={friendId ? sendRequest : findChat}
-                        disabled={!connected}
-                        className="w-20 h-20 rounded-2xl bg-white text-black text-lg font-black hover:scale-105 hover:rounded-3xl transition-all shadow-[0_8px_32px_rgba(255,255,255,0.15)] disabled:opacity-30 flex items-center justify-center"
-                      >
-                        {friendId ? "CHAT" : "GO"}
-                      </button>
+                      <div className="flex flex-col items-center gap-4">
+                        {!friendId && (
+                          <div className="w-56 px-3.5 py-2.5 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-between gap-3 hover:bg-white/[0.04] transition-all mb-1 shadow-lg">
+                            <div className="text-left">
+                              <div className="text-[11px] font-bold text-white/90">Match Nearby (100km)</div>
+                              <div className="text-[9px] text-white/40">Find strangers close to you</div>
+                            </div>
+                            <button
+                              onClick={toggleNearby}
+                              className={`relative inline-flex h-4.5 w-8 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                nearbyOnly ? "bg-white" : "bg-white/10"
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-[#030303] shadow ring-0 transition duration-200 ease-in-out ${
+                                  nearbyOnly ? "translate-x-3.5 bg-black" : "translate-x-0 bg-white/40"
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        )}
+                        <button
+                          onClick={friendId ? sendRequest : findChat}
+                          disabled={!connected}
+                          className="w-20 h-20 rounded-2xl bg-white text-black text-lg font-black hover:scale-105 hover:rounded-3xl transition-all shadow-[0_8px_32px_rgba(255,255,255,0.15)] disabled:opacity-30 flex items-center justify-center"
+                        >
+                          {friendId ? "CHAT" : "GO"}
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}

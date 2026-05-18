@@ -15,6 +15,8 @@ const userSchema = new mongoose.Schema({
         count: { type: Number, default: 0 },
         voters: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
     },
+    latitude: { type: Number },
+    longitude: { type: Number },
     lastSeen: { type: Date, default: Date.now },
     isOnline: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
