@@ -1731,7 +1731,7 @@ const io = new Server(httpServer, {
     pingInterval: 10000,
     pingTimeout: 5000,
     maxHttpBufferSize: 1e6,
-    transports: ['websocket', 'polling']
+    transports: ['polling', 'websocket']
 });
 
 ioInstance = io;
