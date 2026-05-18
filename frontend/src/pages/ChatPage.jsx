@@ -25,6 +25,7 @@ export default function ChatPage() {
     connected,
     sendDirectChatRequest,
     cancelDirectChatRequest,
+    lastChatStartedRef,
   } = useSocket();
   const toast    = useToastHelpers();
   const navigate = useNavigate();
@@ -38,6 +39,8 @@ export default function ChatPage() {
   const friendName = location.state?.friendName  ?? null;
   // directRoom is present when User A already sent the request before navigating
   const directRoom = location.state?.directRoom  ?? null;
+  // accepted=true means THIS user (B) already accepted — skip waiting_accept
+  const accepted   = location.state?.accepted    ?? false;
 
   // ── WebRTC refs ──────────────────────────────────────────────────────────
   const pcRef         = useRef(null);
@@ -53,6 +56,7 @@ export default function ChatPage() {
   const msgIndexRef  = useRef(0);
   const roomRef      = useRef(null);
   const partnerIdRef = useRef(null);
+  const acceptedRoomRef = useRef(null);
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [mode,           setMode]           = useState("video"); // "video"|"chat"
@@ -67,6 +71,8 @@ export default function ChatPage() {
   const [fileName,       setFileName]       = useState("");
   const [videoActive,    setVideoActive]    = useState(false);
   const [partnerTyping,  setPartnerTyping]  = useState(false);
+  const [incomingCall,   setIncomingCall]   = useState(null); // { sdp } when B gets a call offer
+  const [callState,      setCallState]      = useState("idle"); // "idle"|"calling"|"active"|"declined"
 
   // ── Match state ───────────────────────────────────────────────────────────
   // idle | waiting_accept | searching | chatting | partner_left
@@ -96,6 +102,8 @@ export default function ChatPage() {
     if (localVideoRef.current)  localVideoRef.current.srcObject  = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     setVideoActive(false);
+    setCallState("idle");
+    setIncomingCall(null);
   }, []);
 
   // ── Fetch partner username from /api/user/:id ─────────────────────────────
@@ -150,15 +158,43 @@ export default function ChatPage() {
     toast.success(info, 4000);
   }, [myUserId, resetSession, stopVideo, resolveUsername]); // eslint-disable-line
 
+  // ── Auto-cancel outgoing request on unmount/navigation away ───────────────
+  const chatStatusRef = useRef(chatStatus);
+  useEffect(() => {
+    chatStatusRef.current = chatStatus;
+  }, [chatStatus]);
+
+  useEffect(() => {
+    return () => {
+      if (chatStatusRef.current === "waiting_accept" && friendId) {
+        cancelDirectChatRequest(friendId);
+      }
+    };
+  }, [friendId, cancelDirectChatRequest]);
+
   // ── Socket listeners ──────────────────────────────────────────────────────
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket) return;
 
-    // If navigated with directRoom → we are the initiator (User A)
+    // ── Determine initial state based on navigation flags ──────────────────
+    // Case 1: B (accepter) — they already accepted, wait for chatStarted
+    //         OR chatStarted already arrived (buffered in lastChatStartedRef)
+    // Case 2: A (initiator) — they sent the request, now waiting for accept
     if (directRoom && friendId && chatStatus === "idle") {
-      setChatStatus("waiting_accept");
-      setPartnerUsername(friendName || "Friend");
+      if (accepted) {
+        // B accepted: set state to "searching" (spinner) and emit directChatAccept
+        // exactly once to prevent any duplicate calls upon re-renders.
+        setChatStatus("searching");
+        if (acceptedRoomRef.current !== directRoom) {
+          acceptedRoomRef.current = directRoom;
+          socket.emit("directChatAccept", { toId: friendId, room: directRoom });
+        }
+      } else {
+        // A (initiator): waiting for B to accept
+        setChatStatus("waiting_accept");
+        setPartnerUsername(friendName || "Friend");
+      }
     }
 
     // ── Matchmaking ───────────────────────────────────────────────────────
@@ -166,6 +202,8 @@ export default function ChatPage() {
     const onCancelled = () => setChatStatus("idle");
 
     const onChatStarted = ({ room: r, partnerId: pid, matchType: mt, commonInterests: ci }) => {
+      // Clear the global buffer since we're now handling it
+      lastChatStartedRef.current = null;
       const nameHint = (pid === friendId) ? friendName : null;
       enterChat(r, pid, mt, ci, nameHint);
     };
@@ -202,6 +240,13 @@ export default function ChatPage() {
       setChatStatus("idle");
     };
 
+    // ── Direct chat invalid / cancelled (User B receives if clicked accept but request is gone)
+    const onInvalid = () => {
+      toast.error("This chat request is no longer valid or was cancelled.");
+      setChatStatus("idle");
+      navigate("/dashboard");
+    };
+
     // ── Follow result ─────────────────────────────────────────────────────
     const onFollowed = ({ message, isFriend }) => {
       const isNowFollowing = !message?.toLowerCase().includes("unfollow");
@@ -231,10 +276,14 @@ export default function ChatPage() {
     // ── WebRTC signal ─────────────────────────────────────────────────────
     const onSignal = async ({ data }) => {
       try {
+        // Declined signal from B — A receives this, not handled here (see videoCallDeclined)
+        if (data.declined) return;
+
         if (!pcRef.current) {
-          // We are the answering side — start receiver flow
+          // We are B (answering side) — incoming offer: show call prompt, do NOT auto-accept
           if (data.sdp?.type === "offer") {
-            await startVideoReceiver(data.sdp, socket);
+            setIncomingCall({ sdp: data.sdp });
+            setCallState("incoming");
           }
           return;
         }
@@ -251,6 +300,12 @@ export default function ChatPage() {
       } catch (err) { console.error("Signal error:", err); }
     };
 
+    // B declined — A receives this
+    const onVideoCallDeclined = () => {
+      setCallState("idle");
+      toast.notif(`${partnerUsername || "Partner"} declined the video call.`);
+    };
+
     socket.on("waitingForPartner",   onWaiting);
     socket.on("waitingCancelled",    onCancelled);
     socket.on("chatStarted",         onChatStarted);
@@ -259,12 +314,30 @@ export default function ChatPage() {
     socket.on("partnerLeft",         onGone);
     socket.on("partnerDisconnected", onGone);
     socket.on("directChatDeclined",  onDeclined);
+    socket.on("directChatInvalid",   onInvalid);
     socket.on("followed",            onFollowed);
     socket.on("followStatusUpdate",  onFollowStatus);
     socket.on("ranked",              onRanked);
     socket.on("rankUpdateInChat",    onRankInChat);
     socket.on("rankUpdated",         onRankUpdated);
     socket.on("signal",              onSignal);
+    socket.on("videoCallDeclined",   onVideoCallDeclined);
+
+    // ── Drain buffered chatStarted AFTER registering listener ─────────────
+    // This handles the case where chatStarted arrived between B clicking
+    // Accept and ChatPage registering its listener.
+    if (accepted && chatStatus !== "chatting") {
+      const buffered = lastChatStartedRef.current;
+      if (
+        buffered &&
+        buffered.room === directRoom &&
+        buffered.partnerId
+      ) {
+        lastChatStartedRef.current = null;
+        // Use setTimeout(0) so React state updates from this effect settle first
+        setTimeout(() => onChatStarted(buffered), 0);
+      }
+    }
 
     return () => {
       socket.off("waitingForPartner",   onWaiting);
@@ -275,14 +348,16 @@ export default function ChatPage() {
       socket.off("partnerLeft",         onGone);
       socket.off("partnerDisconnected", onGone);
       socket.off("directChatDeclined",  onDeclined);
+      socket.off("directChatInvalid",   onInvalid);
       socket.off("followed",            onFollowed);
       socket.off("followStatusUpdate",  onFollowStatus);
       socket.off("ranked",              onRanked);
       socket.off("rankUpdateInChat",    onRankInChat);
       socket.off("rankUpdated",         onRankUpdated);
       socket.off("signal",              onSignal);
+      socket.off("videoCallDeclined",   onVideoCallDeclined);
     };
-  // directRoom / friendId / friendName are stable navigation state values
+  // directRoom / friendId / friendName / accepted are stable navigation state values
   }, [connected, myUserId]); // eslint-disable-line
 
   // Scroll to bottom on new message
@@ -316,6 +391,7 @@ export default function ChatPage() {
       socket.emit("signal", { data: { sdp: pc.localDescription } });
       applyAV(stream);
       setVideoActive(true);
+      setCallState("active");
     } catch (err) { toast.error("Camera/mic: " + err.message); }
   };
 
@@ -332,9 +408,10 @@ export default function ChatPage() {
       socket.emit("signal", { data: { sdp: offer } });
       applyAV(stream);
       setVideoActive(true);
-      toast.success("Video call started — waiting for partner…");
+      setCallState("calling");
+      toast.success(`Calling ${partnerUsername || "partner"}… waiting for them to accept.`);
     } catch (err) { toast.error("Camera/mic: " + err.message); }
-  }, []); // eslint-disable-line
+  }, [partnerUsername]); // eslint-disable-line
 
   const applyAV = (stream) => {
     stream.getAudioTracks().forEach((t) => { t.enabled = micOn; });
@@ -356,6 +433,24 @@ export default function ChatPage() {
       return next;
     });
   }, []);
+
+  // ── Accept incoming video call (B) ────────────────────────────────────────
+  const acceptCall = useCallback(async () => {
+    const socket = socketRef.current;
+    const sdp    = incomingCall?.sdp;
+    if (!socket || !sdp) return;
+    setIncomingCall(null);
+    await startVideoReceiver(sdp, socket);
+  }, [incomingCall]); // eslint-disable-line
+
+  // ── Decline incoming video call (B) ─────────────────────────────────────
+  const declineCall = useCallback(() => {
+    const socket = socketRef.current;
+    setIncomingCall(null);
+    setCallState("idle");
+    socket?.emit("signal", { data: { declined: true } });
+    toast.notif("You declined the video call.");
+  }, []); // eslint-disable-line
 
   // ── Matchmaking actions ────────────────────────────────────────────────────
   const findChat = useCallback(() => {
@@ -389,10 +484,11 @@ export default function ChatPage() {
   const endChat = useCallback(() => {
     const pid = partnerIdRef.current;
     if (socketRef.current && pid) socketRef.current.emit("leaveChat", { partnerId: pid });
-    if (chatStatus === "waiting_accept" && friendId) cancelDirectChatRequest(friendId);
+    // Only A (the initiator, not the accepter) should cancel the outgoing request
+    if (chatStatus === "waiting_accept" && friendId && !accepted) cancelDirectChatRequest(friendId);
     stopVideo();
     navigate("/dashboard");
-  }, [navigate, stopVideo, chatStatus, friendId, cancelDirectChatRequest]);
+  }, [navigate, stopVideo, chatStatus, friendId, accepted, cancelDirectChatRequest]);
 
   // ── Messaging ─────────────────────────────────────────────────────────────
   const handleSend = useCallback((e) => {
@@ -477,12 +573,14 @@ export default function ChatPage() {
   const partnerDisplay = partnerUsername || (partnerId ? `User#${partnerId.slice(-4)}` : "");
 
   const badge = (() => {
-    if (!connected)                    return { text: "Connecting…",          color: "text-yellow-400" };
-    if (chatStatus === "idle")         return { text: "Ready",                color: "text-gray-400"   };
-    if (chatStatus === "waiting_accept") return { text: "Waiting for accept…",color: "text-blue-400"   };
-    if (chatStatus === "searching")    return { text: "Searching…",           color: "text-yellow-400" };
-    if (chatStatus === "chatting")     return { text: `Connected · ${matchType || ""}`, color: "text-green-400" };
-    if (chatStatus === "partner_left") return { text: "Partner left",         color: "text-red-400"    };
+    if (!connected)                      return { text: "Connecting…",            color: "text-yellow-400" };
+    if (chatStatus === "idle")           return { text: "Ready",                  color: "text-gray-400"   };
+    if (chatStatus === "waiting_accept") return { text: "Waiting for accept…",    color: "text-blue-400"   };
+    if (chatStatus === "searching")      return accepted
+      ? { text: "Connecting…",   color: "text-green-400" }
+      : { text: "Searching…",    color: "text-yellow-400" };
+    if (chatStatus === "chatting")       return { text: `Connected · ${matchType || ""}`, color: "text-green-400" };
+    if (chatStatus === "partner_left")   return { text: "Partner left",           color: "text-red-400"    };
     return { text: "", color: "" };
   })();
 
@@ -532,7 +630,7 @@ export default function ChatPage() {
               </button>
             )}
 
-            {chatStatus === "searching" && (
+            {chatStatus === "searching" && !accepted && (
               <button onClick={cancelWaiting}
                 className="px-3 py-1 rounded-full border border-yellow-400 text-yellow-400 text-xs hover:bg-yellow-400 hover:text-black transition">
                 Cancel search
@@ -588,10 +686,11 @@ export default function ChatPage() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-sm truncate">
-                      {chatStatus === "chatting"      ? partnerDisplay
-                        : chatStatus === "waiting_accept" ? `Waiting for ${friendName || "friend"}…`
-                        : chatStatus === "searching"      ? "Searching…"
-                        : chatStatus === "partner_left"   ? "Partner left"
+                      {chatStatus === "chatting"        ? partnerDisplay
+                        : chatStatus === "waiting_accept"   ? `Waiting for ${friendName || "friend"}…`
+                        : chatStatus === "searching" && accepted ? `Connecting to ${friendName || "friend"}…`
+                        : chatStatus === "searching"            ? "Searching…"
+                        : chatStatus === "partner_left"         ? "Partner left"
                         : friendId ? `Chat with ${friendName || "friend"}` : "Start a chat"}
                     </span>
                     {chatStatus === "chatting" && (
@@ -611,9 +710,10 @@ export default function ChatPage() {
                         ? `Common: ${commonInterests.map((i) => `#${i}`).join(" ")}`
                         : matchType === "direct" ? "Direct friend chat"
                         : `Matched via ${matchType ?? "random"}`
-                      : chatStatus === "waiting_accept" ? "Waiting for acceptance…"
-                      : chatStatus === "searching"      ? "Looking for someone with your interests…"
-                      : chatStatus === "partner_left"   ? "Your partner disconnected."
+                      : chatStatus === "waiting_accept"              ? "Waiting for acceptance…"
+                      : chatStatus === "searching" && accepted       ? "Setting up your chat room…"
+                      : chatStatus === "searching"                   ? "Looking for someone with your interests…"
+                      : chatStatus === "partner_left"                ? "Your partner disconnected."
                       : friendId ? "Send a chat request to start." : "Click GO to find a match."}
                   </p>
                 </div>
@@ -640,10 +740,19 @@ export default function ChatPage() {
                 {/* Overlay when no video */}
                 {!videoActive && (
                   <div className="relative z-10 flex flex-col items-center gap-4 px-6 text-center">
-                    {chatStatus === "searching" && (
+                    {chatStatus === "searching" && !accepted && (
                       <>
                         <div className="h-12 w-12 rounded-full border-2 border-white border-t-transparent animate-spin" />
                         <p className="text-sm text-gray-300">Finding your match…</p>
+                      </>
+                    )}
+                    {chatStatus === "searching" && accepted && (
+                      <>
+                        <div className="h-12 w-12 rounded-full border-2 border-green-400 border-t-transparent animate-spin" />
+                        <p className="text-sm text-green-300">
+                          Connecting to {friendName || "friend"}…
+                        </p>
+                        <p className="text-[11px] text-gray-500">Setting up your chat room.</p>
                       </>
                     )}
                     {chatStatus === "waiting_accept" && (
@@ -659,7 +768,16 @@ export default function ChatPage() {
                         </button>
                       </>
                     )}
-                    {chatStatus === "chatting" && (
+                    {chatStatus === "chatting" && callState === "calling" && (
+                      <>
+                        <div className="h-12 w-12 rounded-full border-2 border-green-400 border-t-transparent animate-spin" />
+                        <p className="text-sm text-green-300">
+                          Calling {partnerDisplay || "partner"}…
+                        </p>
+                        <p className="text-[11px] text-gray-500">Waiting for them to accept the call.</p>
+                      </>
+                    )}
+                    {chatStatus === "chatting" && callState !== "calling" && callState !== "incoming" && (
                       <>
                         <p className="text-xs text-gray-400">
                           Camera appears here when video call starts.
@@ -697,6 +815,51 @@ export default function ChatPage() {
                     className="absolute top-3 right-3 z-20 px-3 py-1 rounded-full bg-red-600 text-white text-xs hover:bg-red-700 transition">
                     End Call
                   </button>
+                )}
+
+                {/* ═══ INCOMING CALL OVERLAY ═══════════════════════════════ */}
+                {callState === "incoming" && incomingCall && (
+                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl">
+                    {/* Pulsing ring */}
+                    <div className="relative mb-6">
+                      <div className="absolute inset-0 rounded-full bg-green-400/20 animate-ping" style={{ animationDuration: "1.5s" }} />
+                      <div className="absolute inset-[-8px] rounded-full border-2 border-green-400/30 animate-pulse" />
+                      <div className="relative h-20 w-20 rounded-full bg-white text-black flex items-center justify-center text-2xl font-bold shadow-[0_0_50px_rgba(74,222,128,0.3)]">
+                        {partnerInitial}
+                      </div>
+                    </div>
+
+                    <p className="text-lg font-semibold text-white mb-1">
+                      {partnerDisplay || "Partner"}
+                    </p>
+                    <p className="text-sm text-green-300 mb-1 animate-pulse">
+                      Incoming video call…
+                    </p>
+                    <p className="text-[11px] text-gray-500 mb-6">
+                      Your camera &amp; mic will be enabled if you accept.
+                    </p>
+
+                    <div className="flex items-center gap-4">
+                      <button
+                        onClick={acceptCall}
+                        className="flex flex-col items-center gap-1.5 group"
+                      >
+                        <div className="h-14 w-14 rounded-full bg-green-500 flex items-center justify-center text-white text-xl hover:bg-green-400 hover:scale-110 transition-all shadow-[0_0_25px_rgba(34,197,94,0.4)]">
+                          <FaVideo />
+                        </div>
+                        <span className="text-[11px] text-green-300 group-hover:text-green-200">Accept</span>
+                      </button>
+                      <button
+                        onClick={declineCall}
+                        className="flex flex-col items-center gap-1.5 group"
+                      >
+                        <div className="h-14 w-14 rounded-full bg-red-500 flex items-center justify-center text-white text-lg hover:bg-red-400 hover:scale-110 transition-all shadow-[0_0_25px_rgba(239,68,68,0.4)]">
+                          ✕
+                        </div>
+                        <span className="text-[11px] text-red-300 group-hover:text-red-200">Decline</span>
+                      </button>
+                    </div>
+                  </div>
                 )}
 
                 {/* Local PIP */}
@@ -757,6 +920,8 @@ export default function ChatPage() {
                   ? `Chat with ${partnerDisplay}`
                   : chatStatus === "waiting_accept"
                   ? `Waiting for ${friendName || "friend"}…`
+                  : chatStatus === "searching" && accepted
+                  ? `Connecting to ${friendName || "friend"}…`
                   : "Text chat"}
               </h2>
               {chatStatus === "chatting" && commonInterests.length > 0 && (
@@ -798,7 +963,7 @@ export default function ChatPage() {
               </div>
             )}
 
-            {chatStatus === "searching" && (
+            {chatStatus === "searching" && !accepted && (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
                 <div className="h-7 w-7 rounded-full border-2 border-white border-t-transparent animate-spin" />
                 <p className="text-gray-400 text-xs">Searching for someone…</p>
@@ -806,6 +971,14 @@ export default function ChatPage() {
                   className="text-[11px] text-yellow-400 border border-yellow-400/50 px-3 py-1 rounded-full hover:bg-yellow-400/10 transition">
                   Cancel
                 </button>
+              </div>
+            )}
+
+            {chatStatus === "searching" && accepted && (
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
+                <div className="h-7 w-7 rounded-full border-2 border-green-400 border-t-transparent animate-spin" />
+                <p className="text-green-300 text-xs">Connecting to {friendName || "friend"}…</p>
+                <p className="text-gray-600 text-[11px]">Setting up your chat room.</p>
               </div>
             )}
 

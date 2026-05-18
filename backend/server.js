@@ -80,6 +80,19 @@ mongoose.connect(process.env.MONGO_URI)
 // Store io reference globally for helper functions
 let ioInstance;
 
+// ─── Pending direct-chat requests ───────────────────────────
+// Map from roomId → { fromId, toId, fromSocketId, toSocketId, timer }
+// Ensures atomic accept/cancel with auto-expiry after 35 s.
+const pendingDirectRequests = new Map();
+
+function clearPendingRequest(room) {
+    const entry = pendingDirectRequests.get(room);
+    if (entry) {
+        clearTimeout(entry.timer);
+        pendingDirectRequests.delete(room);
+    }
+}
+
 // ─── Cookie helper ───────────────────────────────────────────
 // Single source of truth for cookie options.
 // When frontend is HTTPS and backend is HTTP behind a proxy,
@@ -1789,15 +1802,32 @@ io.on('connection', async socket => {
                 return;
             }
 
-            io.to(toSocketId).emit('directChatRequest', {
-                fromId: socket.userId,
-                fromName: socket.username || 'A friend',
-                room
+            // Overwrite any stale request for the same room
+            clearPendingRequest(room);
+
+            // Auto-expire after 35 s (toast on B's side lasts 30 s)
+            const timer = setTimeout(() => {
+                if (pendingDirectRequests.has(room)) {
+                    pendingDirectRequests.delete(room);
+                    console.log(`[Direct] request expired — room: ${room}`);
+                }
+            }, 35_000);
+
+            pendingDirectRequests.set(room, {
+                fromId       : socket.userId,
+                fromSocketId : socket.id,
+                toId,
+                toSocketId,
+                timer,
             });
 
-            console.log(
-                `[Direct] ${socket.userId} → ${toId} room: ${room}`
-            );
+            io.to(toSocketId).emit('directChatRequest', {
+                fromId   : socket.userId,
+                fromName : socket.username || 'A friend',
+                room,
+            });
+
+            console.log(`[Direct] ${socket.userId} → ${toId} room: ${room}`);
         } catch (err) {
             console.error('directChatRequest error:', err);
         }
@@ -1806,12 +1836,24 @@ io.on('connection', async socket => {
     // ─── Direct Chat: Accept ─────────────────────────────
     socket.on('directChatAccept', ({ toId, room }) => {
         try {
-            const toSocketId = activeUsers.get(toId);
+            // Atomically pop the pending entry — if it's gone (expired,
+            // cancelled, or double-accept) we silently bail out.
+            const entry = pendingDirectRequests.get(room);
+            if (!entry) {
+                console.warn(`[Direct] accept ignored — no pending entry for room: ${room}`);
+                socket.emit('directChatInvalid', { room });
+                return;
+            }
+            clearPendingRequest(room);
+
+            // Look up current socket IDs (may have changed since request)
+            const fromSocketId = activeUsers.get(toId);
+            const toSocketId   = socket.id;
 
             // Join both sockets into the room
             socket.join(room);
-            if (toSocketId) {
-                io.sockets.sockets.get(toSocketId)?.join(room);
+            if (fromSocketId) {
+                io.sockets.sockets.get(fromSocketId)?.join(room);
             }
 
             // Mark both as busy
@@ -1820,23 +1862,23 @@ io.on('connection', async socket => {
 
             const chatStartedPayload = {
                 room,
-                matchType: 'direct',
-                commonInterests: [],
-                matchScore: 0
+                matchType       : 'direct',
+                commonInterests : [],
+                matchScore      : 0,
             };
 
-            // Tell requester (toId) chat has started
-            if (toSocketId) {
-                io.to(toSocketId).emit('chatStarted', {
+            // Tell requester (toId / A) chat has started
+            if (fromSocketId) {
+                io.to(fromSocketId).emit('chatStarted', {
                     ...chatStartedPayload,
-                    partnerId: socket.userId
+                    partnerId: socket.userId,
                 });
             }
 
-            // Tell accepter (this socket) chat has started
+            // Tell accepter (this socket / B) chat has started
             socket.emit('chatStarted', {
                 ...chatStartedPayload,
-                partnerId: toId
+                partnerId: toId,
             });
 
             console.log(`[Direct] accepted — room: ${room}`);
@@ -1848,17 +1890,16 @@ io.on('connection', async socket => {
     // ─── Direct Chat: Decline ────────────────────────────
     socket.on('directChatDecline', ({ toId, room }) => {
         try {
+            clearPendingRequest(room);
             const toSocketId = activeUsers.get(toId);
             if (toSocketId) {
                 io.to(toSocketId).emit('directChatDeclined', {
-                    byName: socket.username || 'Friend',
-                    byId: socket.userId,
-                    room
+                    byName : socket.username || 'Friend',
+                    byId   : socket.userId,
+                    room,
                 });
             }
-            console.log(
-                `[Direct] declined by ${socket.userId}`
-            );
+            console.log(`[Direct] declined by ${socket.userId}`);
         } catch (err) {
             console.error('directChatDecline error:', err);
         }
@@ -1867,17 +1908,16 @@ io.on('connection', async socket => {
     // ─── Direct Chat: Cancel ─────────────────────────────
     socket.on('directChatCancel', ({ toId, room }) => {
         try {
+            clearPendingRequest(room);
             const toSocketId = activeUsers.get(toId);
             if (toSocketId) {
                 io.to(toSocketId).emit('directChatCancelled', {
-                    byName: socket.username || 'Friend',
-                    byId: socket.userId,
-                    room
+                    byName : socket.username || 'Friend',
+                    byId   : socket.userId,
+                    room,
                 });
             }
-            console.log(
-                `[Direct] cancelled by ${socket.userId}`
-            );
+            console.log(`[Direct] cancelled by ${socket.userId}`);
         } catch (err) {
             console.error('directChatCancel error:', err);
         }
@@ -2331,6 +2371,17 @@ io.on('connection', async socket => {
         }
     });
 
+    // ─── Video Call Decline (B → A) ──────────────────────
+    socket.on('videoCallDecline', () => {
+        const targetRoom = Array.from(socket.rooms).find(r => r !== socket.id);
+        if (targetRoom) {
+            socket.to(targetRoom).emit('videoCallDeclined', {
+                byName: socket.username || 'Partner',
+            });
+            console.log(`[VideoCall] declined by ${socket.userId}`);
+        }
+    });
+
     // ─── Leave Chat ──────────────────────────────────────
     socket.on('leaveChat', ({ partnerId }) => {
         if (partnerId) {
@@ -2363,6 +2414,28 @@ io.on('connection', async socket => {
         );
         if (index !== -1) {
             waitingQueue.splice(index, 1);
+        }
+
+        // Cancel any pending direct-chat requests this user initiated
+        for (const [room, entry] of pendingDirectRequests.entries()) {
+            if (entry.fromId === socket.userId) {
+                clearTimeout(entry.timer);
+                pendingDirectRequests.delete(room);
+                // Notify the recipient that the request was cancelled
+                const recipientSocketId = activeUsers.get(entry.toId);
+                if (recipientSocketId) {
+                    io.to(recipientSocketId).emit('directChatCancelled', {
+                        byName : socket.username || 'Friend',
+                        byId   : socket.userId,
+                        room,
+                    });
+                }
+            }
+            // Also remove requests targeting this disconnected user
+            if (entry.toId === socket.userId) {
+                clearTimeout(entry.timer);
+                pendingDirectRequests.delete(room);
+            }
         }
 
         try {
