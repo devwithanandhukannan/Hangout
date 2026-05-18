@@ -13,8 +13,13 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth }   from "../AuthContext";
 import { useSocket } from "../SocketContext";
 import { useToastHelpers } from "../Toast";
-import { FaVideo } from "react-icons/fa";
+import { 
+  FaVideo, FaArrowLeft, FaHeart, FaRegHeart, FaTimes, 
+  FaPaperPlane, FaUserPlus, FaUserCheck, FaMicrophone, 
+  FaMicrophoneSlash, FaCamera, FaChevronRight, FaSave, FaStar
+} from "react-icons/fa";
 import { CgCamera, CgMic } from "react-icons/cg";
+import { IoIosCloseCircle } from "react-icons/io";
 
 const RTC_CONFIG = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
@@ -37,9 +42,7 @@ export default function ChatPage() {
   // ── Navigation state (set by Dashboard/Feed when clicking "Chat") ───────
   const friendId   = location.state?.friendId   ?? null;
   const friendName = location.state?.friendName  ?? null;
-  // directRoom is present when User A already sent the request before navigating
   const directRoom = location.state?.directRoom  ?? null;
-  // accepted=true means THIS user (B) already accepted — skip waiting_accept
   const accepted   = location.state?.accepted    ?? false;
 
   // ── WebRTC refs ──────────────────────────────────────────────────────────
@@ -75,7 +78,6 @@ export default function ChatPage() {
   const [callState,      setCallState]      = useState("idle"); // "idle"|"calling"|"active"|"declined"
 
   // ── Match state ───────────────────────────────────────────────────────────
-  // idle | waiting_accept | searching | chatting | partner_left
   const [chatStatus,      setChatStatus]      = useState("idle");
   const [room,            setRoom]            = useState(null);
   const [partnerId,       setPartnerId]       = useState(null);
@@ -132,7 +134,6 @@ export default function ChatPage() {
 
   // ── Enter chatting state ──────────────────────────────────────────────────
   const enterChat = useCallback((r, pid, mt, ci, nameHint) => {
-    // Guard: never match with yourself
     if (pid === myUserId) {
       socketRef.current?.emit("leaveChat", { partnerId: pid });
       toast.error("Matched with yourself — retrying…");
@@ -177,40 +178,29 @@ export default function ChatPage() {
     const socket = socketRef.current;
     if (!socket) return;
 
-    // ── Determine initial state based on navigation flags ──────────────────
-    // Case 1: B (accepter) — they already accepted, wait for chatStarted
-    //         OR chatStarted already arrived (buffered in lastChatStartedRef)
-    // Case 2: A (initiator) — they sent the request, now waiting for accept
     if (directRoom && friendId && chatStatus === "idle") {
       if (accepted) {
-        // B accepted: set state to "searching" (spinner) and emit directChatAccept
-        // exactly once to prevent any duplicate calls upon re-renders.
         setChatStatus("searching");
         if (acceptedRoomRef.current !== directRoom) {
           acceptedRoomRef.current = directRoom;
           socket.emit("directChatAccept", { toId: friendId, room: directRoom });
         }
       } else {
-        // A (initiator): waiting for B to accept
         setChatStatus("waiting_accept");
         setPartnerUsername(friendName || "Friend");
       }
     }
 
-    // ── Matchmaking ───────────────────────────────────────────────────────
     const onWaiting   = () => setChatStatus("searching");
     const onCancelled = () => setChatStatus("idle");
 
     const onChatStarted = ({ room: r, partnerId: pid, matchType: mt, commonInterests: ci }) => {
-      // Clear the global buffer since we're now handling it
       lastChatStartedRef.current = null;
       const nameHint = (pid === friendId) ? friendName : null;
       enterChat(r, pid, mt, ci, nameHint);
     };
 
-    // ── Messages ──────────────────────────────────────────────────────────
     const onPrivateMsg = ({ senderId, text, timestamp }) => {
-      // Deduplicate: server echoes to the whole room including sender
       if (senderId === myUserId) return;
       const time = timestamp
         ? new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -224,7 +214,6 @@ export default function ChatPage() {
 
     const onTyping = ({ isTyping }) => setPartnerTyping(!!isTyping);
 
-    // ── Partner left ──────────────────────────────────────────────────────
     const onGone = () => {
       toast.notif("Partner left the chat");
       setChatStatus("partner_left");
@@ -234,20 +223,17 @@ export default function ChatPage() {
       stopVideo();
     };
 
-    // ── Direct chat declined (User A receives) ────────────────────────────
     const onDeclined = ({ byName }) => {
       toast.error(`${byName || "Friend"} declined your request.`);
       setChatStatus("idle");
     };
 
-    // ── Direct chat invalid / cancelled (User B receives if clicked accept but request is gone)
     const onInvalid = () => {
       toast.error("This chat request is no longer valid or was cancelled.");
       setChatStatus("idle");
       navigate("/dashboard");
     };
 
-    // ── Follow result ─────────────────────────────────────────────────────
     const onFollowed = ({ message, isFriend }) => {
       const isNowFollowing = !message?.toLowerCase().includes("unfollow");
       setFollowed(isNowFollowing);
@@ -260,7 +246,6 @@ export default function ChatPage() {
       if (isFriend) toast.friend("You're now friends! 🎉");
     };
 
-    // ── Rank / like result ────────────────────────────────────────────────
     const onRanked = ({ newRank, action }) => {
       if (action === "liked")   toast.like(`Liked! Their rank is now ★ ${newRank}`);
       else                      toast.notif(`Unliked. Rank: ★ ${newRank}`);
@@ -273,14 +258,11 @@ export default function ChatPage() {
     };
     const onRankUpdated = ({ newRank }) => setMyRank(newRank);
 
-    // ── WebRTC signal ─────────────────────────────────────────────────────
     const onSignal = async ({ data }) => {
       try {
-        // Declined signal from B — A receives this, not handled here (see videoCallDeclined)
         if (data.declined) return;
 
         if (!pcRef.current) {
-          // We are B (answering side) — incoming offer: show call prompt, do NOT auto-accept
           if (data.sdp?.type === "offer") {
             setIncomingCall({ sdp: data.sdp });
             setCallState("incoming");
@@ -300,7 +282,6 @@ export default function ChatPage() {
       } catch (err) { console.error("Signal error:", err); }
     };
 
-    // B declined — A receives this
     const onVideoCallDeclined = () => {
       setCallState("idle");
       toast.notif(`${partnerUsername || "Partner"} declined the video call.`);
@@ -323,9 +304,6 @@ export default function ChatPage() {
     socket.on("signal",              onSignal);
     socket.on("videoCallDeclined",   onVideoCallDeclined);
 
-    // ── Drain buffered chatStarted AFTER registering listener ─────────────
-    // This handles the case where chatStarted arrived between B clicking
-    // Accept and ChatPage registering its listener.
     if (accepted && chatStatus !== "chatting") {
       const buffered = lastChatStartedRef.current;
       if (
@@ -334,7 +312,6 @@ export default function ChatPage() {
         buffered.partnerId
       ) {
         lastChatStartedRef.current = null;
-        // Use setTimeout(0) so React state updates from this effect settle first
         setTimeout(() => onChatStarted(buffered), 0);
       }
     }
@@ -357,15 +334,12 @@ export default function ChatPage() {
       socket.off("signal",              onSignal);
       socket.off("videoCallDeclined",   onVideoCallDeclined);
     };
-  // directRoom / friendId / friendName / accepted are stable navigation state values
   }, [connected, myUserId]); // eslint-disable-line
 
-  // Scroll to bottom on new message
   useEffect(() => {
     msgEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, partnerTyping]);
 
-  // ── WebRTC helpers ─────────────────────────────────────────────────────────
   const buildPC = (socket, stream) => {
     const pc = new RTCPeerConnection(RTC_CONFIG);
     pcRef.current = pc;
@@ -434,7 +408,6 @@ export default function ChatPage() {
     });
   }, []);
 
-  // ── Accept incoming video call (B) ────────────────────────────────────────
   const acceptCall = useCallback(async () => {
     const socket = socketRef.current;
     const sdp    = incomingCall?.sdp;
@@ -443,7 +416,6 @@ export default function ChatPage() {
     await startVideoReceiver(sdp, socket);
   }, [incomingCall]); // eslint-disable-line
 
-  // ── Decline incoming video call (B) ─────────────────────────────────────
   const declineCall = useCallback(() => {
     const socket = socketRef.current;
     setIncomingCall(null);
@@ -452,7 +424,6 @@ export default function ChatPage() {
     toast.notif("You declined the video call.");
   }, []); // eslint-disable-line
 
-  // ── Matchmaking actions ────────────────────────────────────────────────────
   const findChat = useCallback(() => {
     const socket = socketRef.current;
     if (!socket?.connected) { toast.error("Not connected — please wait…"); return; }
@@ -478,19 +449,17 @@ export default function ChatPage() {
     stopVideo();
     setRoom(null); setPartnerId(null);
     resetSession();
-    findChat(); // immediately re-queue
+    findChat();
   }, [findChat, stopVideo, resetSession]);
 
   const endChat = useCallback(() => {
     const pid = partnerIdRef.current;
     if (socketRef.current && pid) socketRef.current.emit("leaveChat", { partnerId: pid });
-    // Only A (the initiator, not the accepter) should cancel the outgoing request
     if (chatStatus === "waiting_accept" && friendId && !accepted) cancelDirectChatRequest(friendId);
     stopVideo();
     navigate("/dashboard");
   }, [navigate, stopVideo, chatStatus, friendId, accepted, cancelDirectChatRequest]);
 
-  // ── Messaging ─────────────────────────────────────────────────────────────
   const handleSend = useCallback((e) => {
     e?.preventDefault();
     const text   = input.trim();
@@ -518,7 +487,6 @@ export default function ChatPage() {
     }, 2000);
   }, []);
 
-  // ── Like / Rank ────────────────────────────────────────────────────────────
   const handleLike = useCallback(() => {
     const socket = socketRef.current;
     const pid    = partnerIdRef.current;
@@ -538,7 +506,6 @@ export default function ChatPage() {
     });
   }, [myUserId]);
 
-  // ── Follow ─────────────────────────────────────────────────────────────────
   const handleFollow = useCallback(() => {
     const socket = socketRef.current;
     const pid    = partnerIdRef.current;
@@ -547,7 +514,43 @@ export default function ChatPage() {
     setFollowed((p) => !p);
   }, [myUserId]);
 
-  // ── Save chat ──────────────────────────────────────────────────────────────
+  // Keyboard Shortcuts Hook
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if typing inside messaging input bars
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") {
+        return;
+      }
+      
+      const key = e.key.toLowerCase();
+      if (key === "c") {
+        e.preventDefault();
+        toggleCam();
+        toast.success(!camOn ? "Camera Activated" : "Camera Deactivated");
+      } else if (key === "m") {
+        e.preventDefault();
+        toggleMic();
+        toast.success(!micOn ? "Microphone Unmuted" : "Microphone Muted");
+      } else if (key === "n") {
+        e.preventDefault();
+        if (chatStatusRef.current === "chatting") {
+          skipChat();
+          toast.notif("Skipping partner…");
+        } else if (chatStatusRef.current === "idle" || chatStatusRef.current === "partner_left") {
+          findChat();
+          toast.notif("Finding new partner…");
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        endChat();
+        toast.notif("Returning to Dashboard");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleCam, toggleMic, skipChat, findChat, endChat, camOn, micOn]);
+
   const handleSaveChat = useCallback(async () => {
     const pid      = partnerIdRef.current;
     const chatData = chatDataRef.current;
@@ -568,232 +571,242 @@ export default function ChatPage() {
     finally { setSaving(false); }
   }, []);
 
-  // ── Derived display values ─────────────────────────────────────────────────
   const partnerInitial = partnerUsername?.[0]?.toUpperCase() || "?";
   const partnerDisplay = partnerUsername || (partnerId ? `User#${partnerId.slice(-4)}` : "");
 
   const badge = (() => {
-    if (!connected)                      return { text: "Connecting…",            color: "text-yellow-400" };
-    if (chatStatus === "idle")           return { text: "Ready",                  color: "text-gray-400"   };
-    if (chatStatus === "waiting_accept") return { text: "Waiting for accept…",    color: "text-blue-400"   };
+    if (!connected)                      return { text: "Connecting…",            color: "text-amber-400" };
+    if (chatStatus === "idle")           return { text: "Ready",                  color: "text-white/40"   };
+    if (chatStatus === "waiting_accept") return { text: "Pending accept…",        color: "text-blue-400 font-semibold animate-pulse"   };
     if (chatStatus === "searching")      return accepted
-      ? { text: "Connecting…",   color: "text-green-400" }
-      : { text: "Searching…",    color: "text-yellow-400" };
-    if (chatStatus === "chatting")       return { text: `Connected · ${matchType || ""}`, color: "text-green-400" };
-    if (chatStatus === "partner_left")   return { text: "Partner left",           color: "text-red-400"    };
+      ? { text: "Connecting…",   color: "text-emerald-400 animate-pulse font-semibold" }
+      : { text: "Matching…",     color: "text-amber-400 animate-pulse font-semibold" };
+    if (chatStatus === "chatting")       return { text: `Active Match · ${matchType || ""}`, color: "text-emerald-400 font-semibold" };
+    if (chatStatus === "partner_left")   return { text: "Left chat",              color: "text-rose-400 font-semibold"    };
     return { text: "", color: "" };
   })();
 
-  // ── Send direct request helper ─────────────────────────────────────────────
   const sendRequest = useCallback(() => {
     if (!friendId) return;
     const r = sendDirectChatRequest(friendId, friendName);
     if (r) setChatStatus("waiting_accept");
   }, [friendId, friendName, sendDirectChatRequest]);
 
-  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div
-      className="h-screen flex flex-col text-white antialiased overflow-hidden transition-colors duration-700"
-      style={{ backgroundColor: bgFlash ? "#cc0000" : "#000000" }}
+      className="h-screen flex flex-col text-white antialiased overflow-hidden transition-colors duration-700 relative"
+      style={{ backgroundColor: bgFlash ? "#4c0519" : "#030303" }}
     >
-      {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
-      <header className="flex-shrink-0 border-b border-white/10 bg-black/50 backdrop-blur-xl">
-        <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
-          {/* Left */}
-          <div className="flex items-center gap-3 min-w-0">
+      {/* Glow elements */}
+      {!bgFlash && (
+        <>
+          <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-500/5 blur-[120px] pointer-events-none pulse-glow-bg" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-rose-500/5 blur-[120px] pointer-events-none pulse-glow-bg" style={{ animationDelay: "-3s" }} />
+        </>
+      )}
+
+      {/* HEADER */}
+      <header className="flex-shrink-0 border-b border-white/5 bg-black/30 backdrop-blur-md z-30">
+        <div className="px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+          {/* Left info status block */}
+          <div className="flex items-center gap-3.5 min-w-0">
             <button
               onClick={endChat}
-              className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded-full border border-white/40 text-sm hover:bg-white hover:text-black transition"
-            >←</button>
-            <span className="font-semibold text-sm tracking-tight">Hangout</span>
-            <span className={`text-[11px] flex-shrink-0 ${badge.color}`}>{badge.text}</span>
+              className="h-9 w-9 flex-shrink-0 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:text-white transition-all"
+            >
+              <FaArrowLeft size={12} />
+            </button>
+            <div className="min-w-0">
+              <span className="font-bold tracking-tight text-sm text-white/90">Hangout Lobby</span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className={`text-[10px] tracking-wide uppercase font-semibold ${badge.color}`}>{badge.text}</span>
+              </div>
+            </div>
           </div>
 
-          {/* Right actions */}
-          <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* Right action control drawer */}
+          <div className="flex items-center gap-2.5 flex-wrap justify-end">
             <button
               onClick={handleSaveChat}
               disabled={saving || chatStatus !== "chatting"}
-              className="px-3 py-1 rounded-full border border-white text-xs hover:bg-white hover:text-black transition disabled:opacity-40"
+              className="glass-btn px-4 py-2 rounded-full text-xs font-semibold hover:border-white transition-all disabled:opacity-30 disabled:pointer-events-none flex items-center gap-1.5"
             >
-              {saving ? "Saving…" : "Save chat"}
+              <FaSave size={11} className="text-white/60" />
+              <span>{saving ? "Saving…" : "Save chat"}</span>
             </button>
 
             {chatStatus === "idle" && (
               <button
                 onClick={friendId ? sendRequest : findChat}
                 disabled={!connected}
-                className="px-3 py-1 rounded-full border border-white text-xs hover:bg-white hover:text-black transition disabled:opacity-40"
+                className="glass-btn-primary px-5 py-2 rounded-full text-xs font-bold disabled:opacity-30"
               >
-                {friendId ? `Chat with ${friendName || "friend"}` : "Find match"}
+                {friendId ? `Connect with ${friendName || "Friend"}` : "Find Match"}
               </button>
             )}
 
             {chatStatus === "searching" && !accepted && (
               <button onClick={cancelWaiting}
-                className="px-3 py-1 rounded-full border border-yellow-400 text-yellow-400 text-xs hover:bg-yellow-400 hover:text-black transition">
-                Cancel search
+                className="px-4 py-2 rounded-full border border-amber-500/30 text-amber-300 bg-amber-500/5 text-xs font-bold hover:border-amber-400 transition-all">
+                Cancel matchmaking
               </button>
             )}
 
             {chatStatus === "waiting_accept" && (
               <button onClick={cancelDirectRequest}
-                className="px-3 py-1 rounded-full border border-red-400 text-red-400 text-xs hover:bg-red-400 hover:text-black transition">
-                Cancel request
+                className="px-4 py-2 rounded-full border border-rose-500/30 text-rose-300 bg-rose-500/5 text-xs font-bold hover:border-rose-400 transition-all">
+                Cancel Invite
               </button>
             )}
 
             {chatStatus === "chatting" && (
               <button onClick={skipChat}
-                className="px-3 py-1 rounded-full border border-white text-xs hover:bg-white hover:text-black transition">
-                Skip
+                className="glass-btn px-4 py-2 rounded-full text-xs font-bold hover:border-white flex items-center gap-1.5 shadow-lg">
+                <span>Next Partner</span>
+                <kbd className="text-[9px] bg-white/10 px-1 py-0.5 rounded border border-white/5 text-white/50 font-mono">N</kbd>
               </button>
             )}
 
             {chatStatus === "partner_left" && (
               <button onClick={friendId ? sendRequest : findChat}
-                className="px-3 py-1 rounded-full border border-white text-xs hover:bg-white hover:text-black transition">
-                {friendId ? "Request again" : "Find new match"}
+                className="glass-btn-primary px-5 py-2 rounded-full text-xs font-bold">
+                {friendId ? "Re-invite friend" : "Find Next Match"}
               </button>
             )}
 
             <button
               onClick={() => setMode((m) => m === "video" ? "chat" : "video")}
-              className="px-3 py-1 rounded-full border border-white text-xs hover:bg-white hover:text-black transition"
+              className="glass-btn px-4 py-2 rounded-full text-xs font-semibold hover:border-white transition-all"
             >
-              {mode === "video" ? "Text only" : "Video mode"}
+              {mode === "video" ? "Hide Camera" : "Video Mode"}
             </button>
           </div>
         </div>
       </header>
 
-      {/* ══ MAIN ════════════════════════════════════════════════════════════ */}
-      <main className="flex-1 min-h-0 px-3 sm:px-4 py-3 flex gap-3 overflow-hidden">
+      {/* MAIN CONTAINER */}
+      <main className="flex-1 min-h-0 px-4 sm:px-6 py-5 flex flex-col lg:flex-row gap-5 overflow-hidden max-w-7xl mx-auto w-full z-10">
 
-        {/* ════ VIDEO PANEL ════════════════════════════════════════════════ */}
+        {/* VIDEO PANEL */}
         {mode === "video" && (
-          <section className="flex-1 min-w-0 min-h-0 flex flex-col bg-white/5 border border-white/15 rounded-3xl backdrop-blur-xl overflow-hidden px-4 sm:px-5 py-4">
+          <section className="flex-1 min-w-0 min-h-0 flex flex-col glass-panel rounded-3xl overflow-hidden p-5 gap-4">
 
-            {/* Partner header */}
-            <div className="flex-shrink-0 flex items-center justify-between gap-3 mb-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="h-10 w-10 flex-shrink-0 rounded-full bg-white text-black flex items-center justify-center text-sm font-bold">
+            {/* Video header details */}
+            <div className="flex-shrink-0 flex items-center justify-between gap-3 border-b border-white/5 pb-4">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="h-10 w-10 flex-shrink-0 rounded-xl bg-white text-black flex items-center justify-center text-sm font-black shadow-[0_4px_12px_rgba(255,255,255,0.15)]">
                   {chatStatus === "chatting" ? partnerInitial
                     : chatStatus === "waiting_accept" ? (friendName?.[0]?.toUpperCase() || "?")
                     : "–"}
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-sm truncate">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="font-bold text-sm text-white/90 truncate leading-tight">
                       {chatStatus === "chatting"        ? partnerDisplay
-                        : chatStatus === "waiting_accept"   ? `Waiting for ${friendName || "friend"}…`
-                        : chatStatus === "searching" && accepted ? `Connecting to ${friendName || "friend"}…`
-                        : chatStatus === "searching"            ? "Searching…"
-                        : chatStatus === "partner_left"         ? "Partner left"
-                        : friendId ? `Chat with ${friendName || "friend"}` : "Start a chat"}
+                        : chatStatus === "waiting_accept"   ? `Connecting ${friendName || "Friend"}`
+                        : chatStatus === "searching" && accepted ? `Setup Room with ${friendName || "Friend"}…`
+                        : chatStatus === "searching"            ? "Matchmaking Queue"
+                        : chatStatus === "partner_left"         ? "Partner Disconnected"
+                        : friendId ? `Connect with ${friendName || "Friend"}` : "Start Chatting"}
                     </span>
                     {chatStatus === "chatting" && (
                       <button
                         onClick={handleFollow}
-                        className={`flex-shrink-0 px-2 py-0.5 rounded-full border text-[11px] transition ${
-                          followed ? "bg-white text-black border-white" : "border-white hover:bg-white hover:text-black"
+                        className={`flex-shrink-0 px-3 py-1 rounded-full border text-[10px] font-bold tracking-wide uppercase transition-all ${
+                          followed ? "bg-white text-black border-white" : "border-white/20 text-white/60 hover:text-white hover:border-white"
                         }`}
                       >
                         {followed ? "Following ✓" : "Follow"}
                       </button>
                     )}
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-0.5 truncate">
+                  <p className="text-[10px] text-white/40 mt-1 truncate">
                     {chatStatus === "chatting"
                       ? commonInterests.length > 0
-                        ? `Common: ${commonInterests.map((i) => `#${i}`).join(" ")}`
-                        : matchType === "direct" ? "Direct friend chat"
+                        ? `Shared Interests: ${commonInterests.map((i) => `#${i}`).join(" ")}`
+                        : matchType === "direct" ? "Private chat session"
                         : `Matched via ${matchType ?? "random"}`
-                      : chatStatus === "waiting_accept"              ? "Waiting for acceptance…"
-                      : chatStatus === "searching" && accepted       ? "Setting up your chat room…"
-                      : chatStatus === "searching"                   ? "Looking for someone with your interests…"
-                      : chatStatus === "partner_left"                ? "Your partner disconnected."
-                      : friendId ? "Send a chat request to start." : "Click GO to find a match."}
+                      : chatStatus === "waiting_accept"              ? "Waiting for partner to accept invitation…"
+                      : chatStatus === "searching" && accepted       ? "Initiating web socket connection…"
+                      : chatStatus === "searching"                   ? "Filtering other users by common interest tags…"
+                      : chatStatus === "partner_left"                ? "Your chat companion has disconnected."
+                      : friendId ? "Send a direct invitation request to begin." : "Click GO below to start matching instantly."}
                   </p>
                 </div>
               </div>
-              {/* Your rank */}
-              <div className="flex-shrink-0 text-right">
-                <div className="text-[10px] text-gray-500">Your rank</div>
-                <div className="text-sm font-bold text-yellow-400">★ {myRank}</div>
+              {/* Leaderboard Rank score bubble */}
+              <div className="flex-shrink-0 text-right bg-white/5 border border-white/10 px-3 py-1.5 rounded-2xl">
+                <div className="text-[9px] font-bold text-white/40 uppercase tracking-widest leading-none">Your Rank</div>
+                <div className="text-xs font-black text-amber-400 mt-1 flex items-center gap-0.5 justify-end">
+                  <FaStar size={10} /> {myRank}
+                </div>
               </div>
             </div>
 
-            {/* Video area */}
+            {/* Video stream container element */}
             <div className="flex-1 min-h-0 flex flex-col">
-              <div className="relative flex-1 min-h-0 rounded-2xl bg-white/8 border border-white/15 overflow-hidden flex items-center justify-center">
-                {/* Ambient glow */}
-                <div className="absolute inset-0 pointer-events-none opacity-25 bg-[radial-gradient(circle_at_15%_15%,rgba(255,255,255,0.5),transparent_55%)]" />
+              <div className="relative flex-1 min-h-0 rounded-2xl bg-white/[0.02] border border-white/5 overflow-hidden flex items-center justify-center">
+                {/* Ambient glow accent overlay */}
+                <div className="absolute inset-0 pointer-events-none opacity-20 bg-[radial-gradient(circle_at_15%_15%,rgba(255,255,255,0.4),transparent_55%)]" />
 
-                {/* Remote video (fullscreen in panel) */}
+                {/* Main Remote companion stream */}
                 <video
                   ref={remoteVideoRef} autoPlay playsInline
-                  className={`absolute inset-0 w-full h-full object-cover ${videoActive ? "block" : "hidden"}`}
+                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${videoActive ? "block opacity-100" : "hidden opacity-0"}`}
                 />
 
-                {/* Overlay when no video */}
+                {/* State-driven descriptive placeholders */}
                 {!videoActive && (
-                  <div className="relative z-10 flex flex-col items-center gap-4 px-6 text-center">
+                  <div className="relative z-10 flex flex-col items-center gap-4 px-6 text-center max-w-sm">
                     {chatStatus === "searching" && !accepted && (
                       <>
-                        <div className="h-12 w-12 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                        <p className="text-sm text-gray-300">Finding your match…</p>
+                        <div className="h-9 w-9 rounded-full border border-white/20 border-t-white animate-spin" />
+                        <p className="text-xs text-white/50 leading-relaxed">Finding your match… looking for online matches matching interests.</p>
                       </>
                     )}
                     {chatStatus === "searching" && accepted && (
                       <>
-                        <div className="h-12 w-12 rounded-full border-2 border-green-400 border-t-transparent animate-spin" />
-                        <p className="text-sm text-green-300">
-                          Connecting to {friendName || "friend"}…
-                        </p>
-                        <p className="text-[11px] text-gray-500">Setting up your chat room.</p>
+                        <div className="h-9 w-9 rounded-full border border-emerald-500/20 border-t-emerald-400 animate-spin" />
+                        <p className="text-xs text-emerald-300 font-medium">Connecting to {friendName || "Friend"}…</p>
+                        <p className="text-[10px] text-white/30">Preparing video call handshake negotiation.</p>
                       </>
                     )}
                     {chatStatus === "waiting_accept" && (
                       <>
-                        <div className="h-12 w-12 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
-                        <p className="text-sm text-blue-300">
-                          Waiting for {friendName || "friend"} to accept…
-                        </p>
-                        <p className="text-[11px] text-gray-500">They'll see a notification.</p>
+                        <div className="h-9 w-9 rounded-full border border-blue-500/20 border-t-blue-400 animate-spin" />
+                        <p className="text-xs text-blue-300 font-medium">Awaiting acceptance from {friendName || "friend"}…</p>
+                        <p className="text-[10px] text-white/30 mb-3">They will see an invitation notification inside their dashboard.</p>
                         <button onClick={cancelDirectRequest}
-                          className="text-xs text-red-400 border border-red-400/40 px-4 py-1.5 rounded-full hover:bg-red-400/10 transition">
-                          Cancel request
+                          className="glass-btn px-4 py-2 rounded-full text-[10px] font-bold text-rose-300 border-rose-500/20 hover:border-rose-500">
+                          Cancel Invitation
                         </button>
                       </>
                     )}
                     {chatStatus === "chatting" && callState === "calling" && (
                       <>
-                        <div className="h-12 w-12 rounded-full border-2 border-green-400 border-t-transparent animate-spin" />
-                        <p className="text-sm text-green-300">
-                          Calling {partnerDisplay || "partner"}…
-                        </p>
-                        <p className="text-[11px] text-gray-500">Waiting for them to accept the call.</p>
+                        <div className="h-[36px] w-[36px] rounded-full border border-emerald-500/20 border-t-emerald-400 animate-spin" />
+                        <p className="text-xs text-emerald-300 font-medium">Calling {partnerDisplay || "partner"}…</p>
+                        <p className="text-[10px] text-white/30">Waiting for companion consent to enable video stream.</p>
                       </>
                     )}
                     {chatStatus === "chatting" && callState !== "calling" && callState !== "incoming" && (
                       <>
-                        <p className="text-xs text-gray-400">
-                          Camera appears here when video call starts.
+                        <p className="text-xs text-white/30 leading-relaxed mb-1">
+                          Camera video feed remains deactivated until call is initiated.
                         </p>
                         <button onClick={startVideo}
-                          className="px-6 py-2.5 rounded-full bg-white text-black text-sm font-semibold hover:bg-gray-200 transition">
-                          Start Video Call
+                          className="glass-btn-primary px-6 py-2.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-lg">
+                          <FaVideo size={11} /> Start Video Call
                         </button>
                       </>
                     )}
                     {chatStatus === "partner_left" && (
                       <div className="flex flex-col items-center gap-3">
-                        <p className="text-sm text-gray-400">Partner left.</p>
+                        <p className="text-xs text-white/40">Companion left the session.</p>
                         <button onClick={friendId ? sendRequest : findChat}
-                          className="px-5 py-2 rounded-full bg-white text-black text-xs font-semibold hover:bg-gray-200 transition">
-                          {friendId ? "Request again" : "Find new match"}
+                          className="glass-btn-primary px-5 py-2.5 rounded-full text-xs font-bold">
+                          {friendId ? "Request Again" : "Find Next Match"}
                         </button>
                       </div>
                     )}
@@ -801,105 +814,103 @@ export default function ChatPage() {
                       <button
                         onClick={friendId ? sendRequest : findChat}
                         disabled={!connected}
-                        className="w-24 h-24 rounded-full bg-white text-black text-2xl font-bold hover:scale-105 transition-transform shadow-[0_0_40px_rgba(255,255,255,0.2)] disabled:opacity-40"
+                        className="w-20 h-20 rounded-2xl bg-white text-black text-lg font-black hover:scale-105 hover:rounded-3xl transition-all shadow-[0_8px_32px_rgba(255,255,255,0.15)] disabled:opacity-30 flex items-center justify-center"
                       >
-                        {friendId ? "Chat" : "GO"}
+                        {friendId ? "CHAT" : "GO"}
                       </button>
                     )}
                   </div>
                 )}
 
-                {/* End video call button */}
+                {/* Hang up call action */}
                 {videoActive && (
                   <button onClick={stopVideo}
-                    className="absolute top-3 right-3 z-20 px-3 py-1 rounded-full bg-red-600 text-white text-xs hover:bg-red-700 transition">
-                    End Call
+                    className="absolute top-4 right-4 z-20 px-4 py-2 rounded-full bg-rose-600/90 text-white text-xs font-bold hover:bg-rose-600 hover:scale-105 transition-all flex items-center gap-1 shadow-lg">
+                    <IoIosCloseCircle size={14} /> End Stream
                   </button>
                 )}
 
-                {/* ═══ INCOMING CALL OVERLAY ═══════════════════════════════ */}
+                {/* INCOMING CALL OVERLAY */}
                 {callState === "incoming" && incomingCall && (
-                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl">
-                    {/* Pulsing ring */}
+                  <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md">
                     <div className="relative mb-6">
-                      <div className="absolute inset-0 rounded-full bg-green-400/20 animate-ping" style={{ animationDuration: "1.5s" }} />
-                      <div className="absolute inset-[-8px] rounded-full border-2 border-green-400/30 animate-pulse" />
-                      <div className="relative h-20 w-20 rounded-full bg-white text-black flex items-center justify-center text-2xl font-bold shadow-[0_0_50px_rgba(74,222,128,0.3)]">
+                      <div className="absolute inset-0 rounded-2xl bg-emerald-500/10 animate-ping" style={{ animationDuration: "1.5s" }} />
+                      <div className="absolute inset-[-6px] rounded-2xl border border-emerald-400/20 animate-pulse" />
+                      <div className="relative h-20 w-20 rounded-2xl bg-white text-black flex items-center justify-center text-3xl font-black shadow-[0_0_40px_rgba(16,185,129,0.25)]">
                         {partnerInitial}
                       </div>
                     </div>
 
-                    <p className="text-lg font-semibold text-white mb-1">
-                      {partnerDisplay || "Partner"}
-                    </p>
-                    <p className="text-sm text-green-300 mb-1 animate-pulse">
-                      Incoming video call…
-                    </p>
-                    <p className="text-[11px] text-gray-500 mb-6">
-                      Your camera &amp; mic will be enabled if you accept.
-                    </p>
+                    <p className="text-base font-bold text-white mb-0.5">{partnerDisplay || "Companion"}</p>
+                    <p className="text-xs text-emerald-400 font-semibold mb-1 tracking-wide animate-pulse">Incoming video call proposal…</p>
+                    <p className="text-[10px] text-white/30 mb-6 text-center px-6">Consent: Your local camera &amp; mic will activate if you choose to accept.</p>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-6">
                       <button
                         onClick={acceptCall}
-                        className="flex flex-col items-center gap-1.5 group"
+                        className="flex flex-col items-center gap-2 group"
                       >
-                        <div className="h-14 w-14 rounded-full bg-green-500 flex items-center justify-center text-white text-xl hover:bg-green-400 hover:scale-110 transition-all shadow-[0_0_25px_rgba(34,197,94,0.4)]">
-                          <FaVideo />
+                        <div className="h-14 w-14 rounded-full bg-emerald-500 flex items-center justify-center text-white text-xl hover:bg-emerald-400 hover:scale-105 transition-all shadow-[0_6px_20px_rgba(16,185,129,0.3)]">
+                          <FaVideo size={18} />
                         </div>
-                        <span className="text-[11px] text-green-300 group-hover:text-green-200">Accept</span>
+                        <span className="text-[10px] font-bold text-emerald-400 group-hover:text-emerald-300 uppercase tracking-wider">Accept</span>
                       </button>
                       <button
                         onClick={declineCall}
-                        className="flex flex-col items-center gap-1.5 group"
+                        className="flex flex-col items-center gap-2 group"
                       >
-                        <div className="h-14 w-14 rounded-full bg-red-500 flex items-center justify-center text-white text-lg hover:bg-red-400 hover:scale-110 transition-all shadow-[0_0_25px_rgba(239,68,68,0.4)]">
-                          ✕
+                        <div className="h-14 w-14 rounded-full bg-rose-500 flex items-center justify-center text-white text-lg hover:bg-rose-400 hover:scale-105 transition-all shadow-[0_6px_20px_rgba(244,63,94,0.3)]">
+                          <FaTimes size={15} />
                         </div>
-                        <span className="text-[11px] text-red-300 group-hover:text-red-200">Decline</span>
+                        <span className="text-[10px] font-bold text-rose-400 group-hover:text-rose-300 uppercase tracking-wider">Decline</span>
                       </button>
                     </div>
                   </div>
                 )}
 
-                {/* Local PIP */}
-                <div className={`absolute bottom-3 right-3 z-10 w-32 h-24 rounded-xl border border-white/20 overflow-hidden bg-black flex items-center justify-center ${!videoActive ? "hidden" : ""}`}>
+                {/* Picture in picture Local stream preview window */}
+                <div className={`absolute bottom-4 right-4 z-10 w-32 h-24 rounded-xl border border-white/10 overflow-hidden bg-black/60 backdrop-blur-md flex items-center justify-center shadow-lg transition-transform ${!videoActive ? "hidden" : "hover:scale-105"}`}>
                   <video ref={localVideoRef} autoPlay muted playsInline
                     className={`w-full h-full object-cover ${camOn ? "block" : "hidden"}`} />
-                  {!camOn && <span className="text-[11px] text-gray-400">Cam off</span>}
+                  {!camOn && <span className="text-[10px] font-semibold text-white/30">Camera Disabled</span>}
                 </div>
               </div>
 
-              {/* Controls row */}
+              {/* Video control bottom bar row */}
               <div className="flex-shrink-0 mt-3 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex items-center gap-2">
                   <button onClick={toggleMic}
-                    className={`px-3 py-1.5 rounded-full border flex items-center gap-1.5 transition ${
-                      micOn ? "bg-white text-black border-white" : "bg-white/10 text-white border-white/30"
+                    className={`px-4 py-2 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      micOn ? "bg-white text-black border-white font-bold" : "bg-white/5 text-white/60 border-white/5"
                     }`}>
-                    <CgMic/> {micOn ? "Mic on" : "Muted"}
+                    {micOn ? <FaMicrophone size={11} /> : <FaMicrophoneSlash size={11} />}
+                    <span>{micOn ? "Mute Mic" : "Muted"}</span>
+                    <kbd className={`text-[9px] px-1 py-0.5 rounded font-mono ${micOn ? "bg-black/10 text-black/55" : "bg-white/10 text-white/40"}`}>M</kbd>
                   </button>
                   <button onClick={toggleCam}
-                    className={`px-3 py-1.5 rounded-full border flex items-center gap-1.5 transition ${
-                      camOn ? "bg-white text-black border-white" : "bg-white/10 text-white border-white/30"
+                    className={`px-4 py-2 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      camOn ? "bg-white text-black border-white font-bold" : "bg-white/5 text-white/60 border-white/5"
                     }`}>
-                    <CgCamera/> {camOn ? "Cam on" : "Cam off"}
+                    <FaCamera size={11} />
+                    <span>{camOn ? "Disable Camera" : "Cam Off"}</span>
+                    <kbd className={`text-[9px] px-1 py-0.5 rounded font-mono ${camOn ? "bg-black/10 text-black/55" : "bg-white/10 text-white/40"}`}>C</kbd>
                   </button>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <button
                     onClick={handleLike}
                     disabled={chatStatus !== "chatting" || partnerId === myUserId}
-                    title={liked ? "Unlike — removes heart from their rank" : "Like — adds to their rank!"}
-                    className={`h-9 w-9 flex items-center justify-center rounded-full border transition text-sm ${
-                      liked ? "bg-red-500 border-none text-white" : "border-gray-400 hover:bg-white hover:text-black"
-                    } disabled:opacity-40`}
+                    title={liked ? "Remove heart contribution" : "Add heart contribution to partner!"}
+                    className={`h-9 w-9 flex items-center justify-center rounded-xl border transition-all text-sm ${
+                      liked ? "bg-rose-500 border-none text-white shadow-lg" : "border-white/10 bg-white/5 hover:border-white/30"
+                    } disabled:opacity-30 disabled:pointer-events-none`}
                   >
-                    {liked ? "♥" : "♡"}
+                    {liked ? <FaHeart size={13} /> : <FaRegHeart size={13} className="text-white/60" />}
                   </button>
                   <button onClick={endChat}
-                    className="px-4 py-1.5 rounded-full bg-white text-black text-xs font-semibold hover:bg-gray-200 transition">
-                    End
+                    className="glass-btn px-4 py-2 rounded-xl text-xs font-bold hover:border-white flex items-center gap-1.5">
+                    <span>Leave lobby</span>
+                    <kbd className="text-[9px] bg-white/10 px-1 py-0.5 rounded border border-white/5 text-white/50 font-mono">Esc</kbd>
                   </button>
                 </div>
               </div>
@@ -907,168 +918,170 @@ export default function ChatPage() {
           </section>
         )}
 
-        {/* ════ CHAT PANEL ═════════════════════════════════════════════════ */}
-        <section className={`min-h-0 flex flex-col bg-white/5 border border-white/15 rounded-3xl backdrop-blur-xl overflow-hidden px-4 sm:px-5 py-4 ${
+        {/* CHAT TEXT PANEL */}
+        <section className={`min-h-0 flex flex-col glass-panel rounded-3xl overflow-hidden p-5 gap-4 ${
           mode === "video" ? "w-full lg:w-80 xl:w-96 flex-shrink-0" : "flex-1"
         }`}>
 
-          {/* Panel header */}
-          <div className="flex-shrink-0 flex items-center justify-between mb-3">
+          {/* Panel header details */}
+          <div className="flex-shrink-0 flex items-center justify-between border-b border-white/5 pb-3.5">
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold truncate">
+              <h2 className="text-xs font-bold text-white/40 uppercase tracking-widest truncate">
                 {chatStatus === "chatting" && partnerDisplay
-                  ? `Chat with ${partnerDisplay}`
+                  ? `Companion text chat`
                   : chatStatus === "waiting_accept"
-                  ? `Waiting for ${friendName || "friend"}…`
+                  ? `Invite Pending`
                   : chatStatus === "searching" && accepted
-                  ? `Connecting to ${friendName || "friend"}…`
-                  : "Text chat"}
+                  ? `Setup room…`
+                  : "Conversation"}
               </h2>
               {chatStatus === "chatting" && commonInterests.length > 0 && (
-                <p className="text-[10px] text-gray-500 truncate">
+                <p className="text-[10px] text-white/40 truncate mt-1">
                   Common: {commonInterests.map((i) => `#${i}`).join(" ")}
                 </p>
               )}
             </div>
-            <span className={`text-[10px] flex-shrink-0 ml-2 ${badge.color}`}>{badge.text}</span>
+            <span className={`text-[10px] font-bold ${badge.color}`}>{badge.text}</span>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+          {/* Chat message timeline list */}
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 no-scrollbar">
 
             {chatStatus === "idle" && (
-              <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
-                <p className="text-gray-500 text-xs">Not connected yet.</p>
+              <div className="h-full flex flex-col items-center justify-center gap-3.5 text-center px-4">
+                <p className="text-white/30 text-xs">Ready to connect when you are. Initiate matching below.</p>
                 <button
                   onClick={friendId ? sendRequest : findChat}
                   disabled={!connected}
-                  className="px-6 py-2.5 rounded-full bg-white text-black text-xs font-semibold hover:bg-gray-200 disabled:opacity-40 transition"
+                  className="glass-btn-primary px-6 py-2.5 rounded-full text-xs font-bold disabled:opacity-30"
                 >
-                  {friendId ? `Chat with ${friendName || "friend"}` : "Find match"}
+                  {friendId ? `Invite ${friendName || "Friend"}` : "Start Matching"}
                 </button>
               </div>
             )}
 
             {chatStatus === "waiting_accept" && (
-              <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
-                <div className="h-7 w-7 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
-                <p className="text-blue-300 text-xs">
-                  Waiting for {friendName || "friend"} to accept…
-                </p>
-                <p className="text-gray-600 text-[11px]">They'll see a notification popup.</p>
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-4">
+                <div className="h-6 w-6 rounded-full border border-blue-400 border-t-transparent animate-spin" />
+                <p className="text-blue-300 text-xs font-semibold">Waiting for companion response…</p>
+                <p className="text-white/30 text-[10px]">An invite alert will appear on their dashboard window.</p>
                 <button onClick={cancelDirectRequest}
-                  className="text-[11px] text-red-400 border border-red-400/50 px-3 py-1 rounded-full hover:bg-red-400/10 transition">
-                  Cancel
+                  className="glass-btn px-4 py-2 rounded-full text-[10px] text-rose-400 font-bold border-rose-500/20 hover:border-rose-500 mt-2">
+                  Cancel Invitation
                 </button>
               </div>
             )}
 
             {chatStatus === "searching" && !accepted && (
-              <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
-                <div className="h-7 w-7 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                <p className="text-gray-400 text-xs">Searching for someone…</p>
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-4">
+                <div className="h-6 w-6 rounded-full border border-white/20 border-t-white animate-spin" />
+                <p className="text-white/45 text-xs">Scanning matchmaking pool…</p>
                 <button onClick={cancelWaiting}
-                  className="text-[11px] text-yellow-400 border border-yellow-400/50 px-3 py-1 rounded-full hover:bg-yellow-400/10 transition">
-                  Cancel
+                  className="glass-btn px-4 py-2 rounded-full text-[10px] text-amber-300 font-bold border-amber-500/20 hover:border-amber-400 mt-2">
+                  Leave Queue
                 </button>
               </div>
             )}
 
             {chatStatus === "searching" && accepted && (
-              <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
-                <div className="h-7 w-7 rounded-full border-2 border-green-400 border-t-transparent animate-spin" />
-                <p className="text-green-300 text-xs">Connecting to {friendName || "friend"}…</p>
-                <p className="text-gray-600 text-[11px]">Setting up your chat room.</p>
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-4">
+                <div className="h-6 w-6 rounded-full border border-emerald-500/20 border-t-emerald-400 animate-spin" />
+                <p className="text-emerald-300 text-xs font-semibold">Connecting to friend…</p>
+                <p className="text-white/30 text-[10px]">Negotiating connection sockets.</p>
               </div>
             )}
 
             {chatStatus === "partner_left" && (
-              <div className="h-full flex flex-col items-center justify-center gap-3 text-center">
-                <p className="text-gray-400 text-xs">Partner left.</p>
+              <div className="h-full flex flex-col items-center justify-center gap-3.5 text-center px-4">
+                <p className="text-white/30 text-xs">Companion disconnected.</p>
                 <button onClick={friendId ? sendRequest : findChat}
-                  className="text-white underline text-xs">
-                  {friendId ? "Request again" : "Find new match"}
+                  className="glass-btn-primary px-5 py-2.5 rounded-full text-xs font-bold">
+                  {friendId ? "Invite Again" : "Next Match"}
                 </button>
               </div>
             )}
 
             {chatStatus === "chatting" && messages.length === 0 && (
-              <div className="h-full flex items-center justify-center">
-                <p className="text-gray-500 text-xs">Connected! Say hello 👋</p>
+              <div className="h-full flex flex-col items-center justify-center text-center">
+                <p className="text-white/30 text-xs">Connected companion found!</p>
+                <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mt-1.5">Say hello to start conversing</p>
               </div>
             )}
 
             {messages.map((msg) => (
-              <div key={msg.id}>
+              <div key={msg.id} className="space-y-1">
                 {msg.from === "partner" && (
-                  <div className="text-[10px] text-gray-500 pl-1 mb-0.5">{partnerDisplay}</div>
+                  <div className="text-[9px] font-bold text-white/30 pl-2 uppercase tracking-wide">{partnerDisplay}</div>
                 )}
                 <div className={`flex ${msg.from === "me" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[78%] rounded-2xl px-3 py-2 break-words text-sm leading-relaxed ${
+                  <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 break-words text-xs leading-relaxed ${
                     msg.from === "me"
-                      ? "bg-white text-black"
-                      : "bg-gray-900 text-white border border-white/10"
+                      ? "bg-white text-black font-medium"
+                      : "bg-white/5 text-white/90 border border-white/5"
                   }`}>
                     {msg.text}
                   </div>
                 </div>
-                <div className={`text-[10px] text-gray-500 mt-0.5 ${
-                  msg.from === "me" ? "text-right pr-1" : "pl-1"
+                <div className={`text-[9px] text-white/30 ${
+                  msg.from === "me" ? "text-right pr-2" : "pl-2"
                 }`}>
                   {msg.time}
                 </div>
               </div>
             ))}
 
-            {/* Typing dots */}
+            {/* Pulsing visual typing indicators */}
             {partnerTyping && chatStatus === "chatting" && (
-              <div className="flex justify-start">
-                <div className="bg-gray-900 border border-white/10 rounded-2xl px-3 py-2 flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-gray-400 animate-bounce [animation-delay:0ms]" />
-                  <span className="h-1.5 w-1.5 rounded-full bg-gray-400 animate-bounce [animation-delay:150ms]" />
-                  <span className="h-1.5 w-1.5 rounded-full bg-gray-400 animate-bounce [animation-delay:300ms]" />
+              <div className="space-y-1">
+                <div className="text-[9px] font-bold text-white/30 pl-2 uppercase tracking-wide">{partnerDisplay}</div>
+                <div className="flex justify-start">
+                  <div className="bg-white/5 border border-white/5 rounded-2xl px-3.5 py-2.5 flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:0ms]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:150ms]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:300ms]" />
+                  </div>
                 </div>
               </div>
             )}
             <div ref={msgEndRef} />
           </div>
 
-          {/* Input bar */}
-          <form onSubmit={handleSend} className="flex-shrink-0 mt-3 pt-3 border-t border-white/10">
+          {/* Form input bar */}
+          <form onSubmit={handleSend} className="flex-shrink-0 mt-2 pt-3.5 border-t border-white/5">
             <div className="flex items-center gap-2">
               <input
                 type="text"
-                placeholder={chatStatus === "chatting" ? "Type a message…" : "Connect to chat"}
+                placeholder={chatStatus === "chatting" ? "Type a message…" : "Connect to chat companion"}
                 value={input}
                 onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) handleSend(e); }}
                 disabled={chatStatus !== "chatting"}
-                className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm placeholder:text-gray-500 disabled:opacity-40"
+                className="flex-1 min-w-0 bg-transparent border-none outline-none text-xs placeholder:text-white/20 disabled:opacity-30"
               />
               <button type="submit"
                 disabled={chatStatus !== "chatting" || !input.trim()}
-                className="flex-shrink-0 text-xs px-3 py-1.5 rounded-full bg-white text-black hover:bg-gray-200 transition disabled:opacity-40">
-                Send
+                className="flex-shrink-0 h-8 w-8 rounded-xl bg-white text-black hover:bg-gray-200 transition-all disabled:opacity-30 flex items-center justify-center shadow-md">
+                <FaPaperPlane size={11} />
               </button>
             </div>
           </form>
         </section>
       </main>
 
-      {/* ── Upload modal ─────────────────────────────────────────────────── */}
+      {/* Upload Modal (kept for functional parity) */}
       {uploadOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-black border border-white/10 rounded-2xl p-5 w-80 max-w-[90vw] backdrop-blur-xl">
-            <h3 className="text-sm font-semibold mb-3">Upload image</h3>
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-md">
+          <div className="bg-black/90 border border-white/10 rounded-3xl p-6 w-80 max-w-full backdrop-blur-xl space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-white/40">Upload image asset</h3>
             <input
               type="file" accept="image/*"
               onChange={(e) => { if (e.target.files?.[0]) setFileName(e.target.files[0].name); }}
-              className="w-full text-xs text-gray-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:bg-white file:text-black file:text-xs"
+              className="w-full text-xs text-white/60 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:bg-white file:text-black file:text-xs file:font-semibold"
             />
-            {fileName && <p className="mt-2 text-[11px] text-gray-400">{fileName}</p>}
-            <div className="mt-4 flex justify-end">
+            {fileName && <p className="text-[10px] text-emerald-400 font-medium">{fileName}</p>}
+            <div className="flex justify-end pt-2">
               <button onClick={() => { setUploadOpen(false); setFileName(""); }}
-                className="px-3 py-1 rounded-full border border-gray-600 hover:bg-gray-900 text-xs transition">
+                className="glass-btn px-4 py-2 rounded-xl text-xs font-bold hover:border-white">
                 Close
               </button>
             </div>

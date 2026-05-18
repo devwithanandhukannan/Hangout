@@ -15,6 +15,12 @@ import {
 import { useAuth } from "../AuthContext";
 import { useSocket } from "../SocketContext";
 import { useToastHelpers } from "../Toast";
+import { 
+  FaHome, FaHistory, FaStar, FaTrashAlt, FaBell, 
+  FaSearch, FaTrophy, FaCamera, FaSignOutAlt, FaTimes, FaPlus 
+} from "react-icons/fa";
+import { CgCommunity } from "react-icons/cg";
+import { IoIosAddCircle, IoIosSettings } from "react-icons/io";
 
 function parseInterests(raw) {
     if (!raw) return [];
@@ -33,23 +39,20 @@ function parseInterests(raw) {
     return [];
 }
 
-// Helper to get avatar or initial
 function Avatar({ src, name, size = "h-16 w-16", textSize = "text-2xl" }) {
     const initial = name?.[0]?.toUpperCase() || "U";
-
     if (src) {
         return (
             <img
                 src={src}
                 alt={name}
-                className={`${size} rounded-full object-cover flex-shrink-0`}
+                className={`${size} rounded-xl object-cover flex-shrink-0 border border-white/10`}
             />
         );
     }
-
     return (
         <div
-            className={`${size} rounded-full bg-white text-black
+            className={`${size} rounded-xl bg-white text-black
                 flex items-center justify-center ${textSize}
                 font-bold flex-shrink-0`}
         >
@@ -110,7 +113,6 @@ export default function SettingsPage() {
             .finally(() => setLoading(false));
     }, []);
 
-    // Create preview when file selected
     useEffect(() => {
         if (!selectedFile) {
             setPreviewUrl(null);
@@ -126,13 +128,11 @@ export default function SettingsPage() {
         setTimeout(() => setStatus({ type: "", msg: "" }), 3000);
     };
 
-    // ✅ FIXED: Uses FormData for file upload
     const handleUpdateProfile = async (e) => {
         e.preventDefault();
         setSaving(true);
         try {
             const formData = new FormData();
-
             if (username) formData.append("username", username);
             if (email) formData.append("email", email);
             if (bio !== undefined) formData.append("bio", bio);
@@ -140,12 +140,9 @@ export default function SettingsPage() {
             if (selectedFile) formData.append("avatar", selectedFile);
 
             const result = await updateProfile(formData);
-
-            // Update local profile with new data
             if (result.user) {
                 setProfile(result.user);
             }
-
             await refreshUser();
             setPassword("");
             setSelectedFile(null);
@@ -164,19 +161,14 @@ export default function SettingsPage() {
     const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
-
-        // Validate file size (2MB)
         if (file.size > 2 * 1024 * 1024) {
             toast.error("Image must be under 2MB");
             return;
         }
-
-        // Validate file type
         if (!file.type.startsWith("image/")) {
             toast.error("Only image files allowed");
             return;
         }
-
         setSelectedFile(file);
     };
 
@@ -225,7 +217,7 @@ export default function SettingsPage() {
             prev.map((n) => ({ ...n, isRead: true }))
         );
         setUnreadCount(0);
-        toast.success("All notifications marked as read");
+        toast.success("All read!");
     };
 
     const handleClearAll = async () => {
@@ -254,16 +246,13 @@ export default function SettingsPage() {
     const handleFollowToggle = async (uid) => {
         try {
             const result = await followToggle(uid);
-            const isNowFollowing =
-                result?.message?.includes("Followed");
-
+            const isNowFollowing = result?.message?.includes("Followed");
             setFollowingIds((prev) => {
                 const next = new Set(prev);
                 if (isNowFollowing) next.add(uid);
                 else next.delete(uid);
                 return next;
             });
-
             setSearchResults((prev) =>
                 prev.map((u) =>
                     (u._id || u.id) === uid
@@ -271,9 +260,7 @@ export default function SettingsPage() {
                         : u
                 )
             );
-
-            if (result?.isFriend)
-                toast.friend("You're now friends! 🎉");
+            if (result?.isFriend) toast.friend("You are now friends!");
             else if (isNowFollowing) toast.follow("Now following!");
             else toast.notif("Unfollowed");
         } catch (err) {
@@ -298,13 +285,13 @@ export default function SettingsPage() {
 
     if (loading) {
         return (
-            <div className="h-screen flex items-center justify-center bg-black text-white">
-                <div className="h-7 w-7 rounded-full border-2 border-white border-t-transparent animate-spin" />
+            <div className="h-screen flex items-center justify-center bg-[#030303] text-white">
+                <div className="h-6 w-6 rounded-full border border-white border-t-transparent animate-spin" />
             </div>
         );
     }
 
-    const initial = username[0]?.toUpperCase() || "U";
+    const usernameVal = username || "User";
     const followersCount = profile?.followers?.length ?? 0;
     const followingCount = profile?.following?.length ?? 0;
     const friendsCount = profile?.friends?.length ?? 0;
@@ -315,109 +302,81 @@ export default function SettingsPage() {
     const tabs = [
         { id: "profile", label: "Profile" },
         { id: "interests", label: "Interests" },
-        {
-            id: "notifications",
-            label: `Notifications${
-                unreadCount > 0 ? ` (${unreadCount})` : ""
-            }`
-        },
-        { id: "search", label: "Find People" },
+        { id: "notifications", label: `Notifications${unreadCount > 0 ? ` (${unreadCount})` : ""}` },
+        { id: "search", label: "Discover" },
         { id: "leaderboard", label: "Leaderboard" }
     ];
 
     return (
-        <div className="min-h-screen bg-black text-white antialiased">
-            <main className="w-full max-w-2xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
-                {/* Back + logout */}
-                <div className="flex items-center justify-between gap-3 mb-8">
+        <div className="min-h-screen bg-[#030303] text-white antialiased pb-20 md:pb-0">
+            {/* Background glow elements */}
+            <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-500/5 blur-[120px] pointer-events-none pulse-glow-bg" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-rose-500/5 blur-[120px] pointer-events-none pulse-glow-bg" style={{ animationDelay: "-3s" }} />
+
+            <main className="w-full max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12 z-10 relative">
+                {/* Header back + logout */}
+                <div className="flex items-center justify-between gap-3 mb-6">
                     <div className="flex items-center gap-3">
                         <Link
                             to="/dashboard"
-                            className="h-8 w-8 flex-shrink-0 flex items-center
-                                justify-center rounded-full border
-                                border-white/30 hover:bg-white
-                                hover:text-black transition text-sm"
+                            className="h-9 w-9 flex-shrink-0 flex items-center
+                                justify-center rounded-xl bg-white/5 border
+                                border-white/10 hover:bg-white/10 transition-all text-xs"
                         >
                             ←
                         </Link>
-                        <h1 className="text-sm font-semibold">
-                            Settings
-                        </h1>
+                        <h1 className="text-sm font-bold text-white/90">Settings</h1>
                     </div>
                     <button
-                        onClick={() => {
-                            logout();
-                            navigate("/login");
-                        }}
-                        className="text-xs text-red-400 border
-                            border-red-400/30 hover:border-red-400
-                            px-3 py-1.5 rounded-full transition"
+                        onClick={() => { logout(); navigate("/login"); }}
+                        className="text-xs text-rose-300 font-semibold border
+                            border-rose-500/20 hover:border-rose-500/50 hover:bg-rose-500/5
+                            px-4 py-2 rounded-full transition-all flex items-center gap-1.5"
                     >
+                        <FaSignOutAlt size={11} />
                         Logout
                     </button>
                 </div>
 
-                {/* Profile header */}
-                <div
-                    className="mb-8 flex flex-wrap items-center gap-5
-                        bg-white/5 border border-white/10
-                        rounded-2xl px-5 py-5"
-                >
+                {/* Profile Overview Card */}
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-5 glass-panel rounded-3xl p-5 border border-white/5">
                     <Avatar
                         src={avatarUrl}
-                        name={username}
+                        name={usernameVal}
                         size="h-16 w-16"
                         textSize="text-2xl"
                     />
                     <div className="flex-1 min-w-0">
-                        <h2 className="text-xl font-semibold truncate">
-                            {username}
-                        </h2>
-                        <p className="text-xs text-gray-400 mt-0.5 truncate">
-                            {email}
-                        </p>
+                        <h2 className="text-lg font-bold text-white leading-tight truncate">{usernameVal}</h2>
+                        <p className="text-xs text-white/40 mt-0.5 truncate">{email}</p>
                         {bio && (
-                            <p className="text-xs text-gray-300 mt-1 line-clamp-2">
+                            <p className="text-xs text-white/60 mt-2 font-light leading-relaxed max-w-sm line-clamp-2">
                                 {bio}
                             </p>
                         )}
                     </div>
-                    <div className="flex flex-wrap gap-4 text-xs text-center">
-                        <div>
-                            <div className="font-bold text-base">
-                                {followersCount}
-                            </div>
-                            <div className="text-gray-400">
-                                Followers
-                            </div>
+                    <div className="flex flex-wrap gap-4 text-xs pt-3 sm:pt-0">
+                        <div className="text-center">
+                            <div className="font-bold text-sm text-white/90">{followersCount}</div>
+                            <div className="text-[10px] text-white/40">Followers</div>
                         </div>
-                        <div>
-                            <div className="font-bold text-base">
-                                {followingCount}
-                            </div>
-                            <div className="text-gray-400">
-                                Following
-                            </div>
+                        <div className="text-center">
+                            <div className="font-bold text-sm text-white/90">{followingCount}</div>
+                            <div className="text-[10px] text-white/40">Following</div>
                         </div>
-                        <div>
-                            <div className="font-bold text-base">
-                                {friendsCount}
-                            </div>
-                            <div className="text-gray-400">
-                                Friends
-                            </div>
+                        <div className="text-center">
+                            <div className="font-bold text-sm text-white/90">{friendsCount}</div>
+                            <div className="text-[10px] text-white/40">Friends</div>
                         </div>
-                        <div>
-                            <div className="font-bold text-base">
-                                {postCount}
-                            </div>
-                            <div className="text-gray-400">Posts</div>
+                        <div className="text-center">
+                            <div className="font-bold text-sm text-white/90">{postCount}</div>
+                            <div className="text-[10px] text-white/40">Posts</div>
                         </div>
-                        <div>
-                            <div className="font-bold text-base text-yellow-400">
-                                ★ {rankScore}
+                        <div className="text-center">
+                            <div className="font-bold text-sm text-amber-400 flex items-center gap-0.5 justify-center">
+                              <FaStar size={10} /> {rankScore}
                             </div>
-                            <div className="text-gray-400">Rank</div>
+                            <div className="text-[10px] text-white/40">Rank</div>
                         </div>
                     </div>
                 </div>
@@ -425,11 +384,11 @@ export default function SettingsPage() {
                 {/* Status toast */}
                 {status.msg && (
                     <div
-                        className={`mb-5 text-xs rounded-xl px-3 py-2
+                        className={`mb-5 text-xs font-semibold rounded-xl px-4 py-2.5 text-center
                             border ${
                                 status.type === "success"
-                                    ? "text-green-400 bg-green-400/10 border-green-400/20"
-                                    : "text-red-400 bg-red-400/10 border-red-400/20"
+                                    ? "text-emerald-400 bg-emerald-500/5 border-emerald-500/20"
+                                    : "text-rose-400 bg-rose-500/5 border-rose-500/20"
                             }`}
                     >
                         {status.msg}
@@ -437,17 +396,17 @@ export default function SettingsPage() {
                 )}
 
                 {/* Tabs */}
-                <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
+                <div className="flex gap-1.5 mb-6 overflow-x-auto pb-1.5 no-scrollbar">
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`flex-shrink-0 px-4 py-1.5
-                                rounded-full text-xs font-medium
-                                transition ${
+                            className={`flex-shrink-0 px-4 py-2
+                                rounded-full text-xs font-semibold
+                                transition-all ${
                                     activeTab === tab.id
                                         ? "bg-white text-black"
-                                        : "text-gray-400 hover:text-white border border-white/15 hover:border-white/30"
+                                        : "text-white/50 hover:text-white border border-white/5 bg-white/[0.02] hover:border-white/15"
                                 }`}
                         >
                             {tab.label}
@@ -455,31 +414,24 @@ export default function SettingsPage() {
                     ))}
                 </div>
 
-                {/* ── PROFILE TAB ── */}
+                {/* PROFILE TAB */}
                 {activeTab === "profile" && (
                     <form
                         onSubmit={handleUpdateProfile}
-                        className="rounded-2xl bg-white/5 border
-                            border-white/10 px-5 py-5 space-y-4"
+                        className="rounded-3xl glass-panel p-6 space-y-4"
                     >
-                        <h3 className="text-xs font-semibold mb-2">
-                            Profile settings
-                        </h3>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white/40 mb-2">Profile Settings</h3>
 
-                        {/* ✅ Avatar Upload Section */}
-                        <div>
-                            <label className="block text-[11px] text-gray-300 mb-2">
-                                Avatar
-                            </label>
+                        {/* Avatar Upload */}
+                        <div className="space-y-1.5">
+                            <label className="block text-[11px] font-semibold text-white/60">Avatar Image</label>
                             <div className="flex items-center gap-4">
-                                {/* Show preview or current avatar */}
                                 <Avatar
                                     src={previewUrl || avatarUrl}
-                                    name={username}
+                                    name={usernameVal}
                                     size="h-14 w-14"
                                     textSize="text-xl"
                                 />
-
                                 <div className="flex-1">
                                     <input
                                         type="file"
@@ -490,37 +442,25 @@ export default function SettingsPage() {
                                     />
                                     <label
                                         htmlFor="avatar-input"
-                                        className="inline-block px-4 py-1.5
-                                            rounded-lg text-[11px]
-                                            font-medium border
-                                            border-white/20
-                                            hover:border-white/50
-                                            cursor-pointer transition"
+                                        className="inline-block px-4 py-2
+                                            rounded-xl text-[11px] font-semibold border
+                                            border-white/10 hover:border-white/30 hover:bg-white/5
+                                            cursor-pointer transition-all"
                                     >
-                                        Choose image
+                                        Change Avatar
                                     </label>
-
                                     {selectedFile && (
-                                        <span className="ml-2 text-[10px] text-green-400">
+                                        <span className="ml-3 text-[10px] text-emerald-400 font-medium">
                                             {selectedFile.name}
                                         </span>
                                     )}
-
-                                    <p className="text-[10px] text-gray-500 mt-1">
-                                        Max 2MB · JPG, PNG, GIF
-                                    </p>
+                                    <p className="text-[10px] text-white/30 mt-1">Image size under 2MB · JPG, PNG, GIF</p>
                                 </div>
-
-                                {/* Remove selected file */}
                                 {selectedFile && (
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            setSelectedFile(null);
-                                            setPreviewUrl(null);
-                                        }}
-                                        className="text-[10px] text-red-400
-                                            hover:text-red-300 transition"
+                                        onClick={() => { setSelectedFile(null); setPreviewUrl(null); }}
+                                        className="text-[10px] text-rose-400 hover:text-rose-300 font-bold"
                                     >
                                         ✕
                                     </button>
@@ -528,283 +468,95 @@ export default function SettingsPage() {
                             </div>
                         </div>
 
-                        <div>
-                            <label className="block text-[11px] text-gray-300 mb-1">
-                                Username
-                            </label>
+                        <div className="space-y-1.5">
+                            <label className="block text-[11px] font-semibold text-white/60">Username</label>
                             <input
                                 value={username}
-                                onChange={(e) =>
-                                    setUsername(e.target.value)
-                                }
-                                className="w-full rounded-lg bg-black border
-                                    border-white/15 px-3 py-2 text-xs
-                                    outline-none focus:border-white
-                                    transition"
+                                onChange={(e) => setUsername(e.target.value)}
+                                className="w-full rounded-xl glass-input px-4 py-3 text-xs outline-none focus:border-white"
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-[11px] text-gray-300 mb-1">
-                                Email
-                            </label>
+                        <div className="space-y-1.5">
+                            <label className="block text-[11px] font-semibold text-white/60">Email</label>
                             <input
                                 type="email"
                                 value={email}
-                                onChange={(e) =>
-                                    setEmail(e.target.value)
-                                }
-                                className="w-full rounded-lg bg-black border
-                                    border-white/15 px-3 py-2 text-xs
-                                    outline-none focus:border-white
-                                    transition"
+                                onChange={(e) => setEmail(e.target.value)}
+                                className="w-full rounded-xl glass-input px-4 py-3 text-xs outline-none focus:border-white"
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-[11px] text-gray-300 mb-1">
-                                Bio
-                            </label>
+                        <div className="space-y-1.5">
+                            <label className="block text-[11px] font-semibold text-white/60">Bio</label>
                             <textarea
                                 rows={2}
                                 value={bio}
                                 onChange={(e) => setBio(e.target.value)}
-                                placeholder="Tell people about yourself…"
-                                className="w-full rounded-lg bg-black border
-                                    border-white/15 px-3 py-2 text-xs
-                                    outline-none focus:border-white
-                                    transition resize-none"
+                                placeholder="Write a short summary about yourself..."
+                                className="w-full rounded-xl glass-input px-4 py-3 text-xs outline-none focus:border-white resize-none"
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-[11px] text-gray-300 mb-1">
-                                New password{" "}
-                                <span className="text-gray-500">
-                                    (leave blank to keep current)
-                                </span>
+                        <div className="space-y-1.5">
+                            <label className="block text-[11px] font-semibold text-white/60">
+                                New Password <span className="text-white/30 font-normal">(leave blank to keep current)</span>
                             </label>
                             <input
                                 type="password"
                                 value={password}
-                                onChange={(e) =>
-                                    setPassword(e.target.value)
-                                }
+                                onChange={(e) => setPassword(e.target.value)}
                                 placeholder="••••••••"
-                                className="w-full rounded-lg bg-black border
-                                    border-white/15 px-3 py-2 text-xs
-                                    outline-none focus:border-white
-                                    transition"
+                                className="w-full rounded-xl glass-input px-4 py-3 text-xs outline-none focus:border-white"
                             />
                         </div>
 
-                        <div className="flex justify-end">
+                        <div className="flex justify-end pt-2">
                             <button
                                 type="submit"
                                 disabled={saving}
-                                className="px-5 py-2 rounded-lg text-xs
-                                    font-semibold bg-white text-black
-                                    hover:bg-gray-200 disabled:opacity-50
-                                    transition"
+                                className="glass-btn-primary px-5 py-2.5 rounded-full text-xs font-semibold disabled:opacity-50"
                             >
-                                {saving ? "Saving…" : "Save changes"}
+                                {saving ? "Saving..." : "Save Profile"}
                             </button>
                         </div>
-
-                        {/* Followers list - clickable */}
-                        {(profile?.followers?.length ?? 0) > 0 && (
-                            <div className="mt-4 pt-4 border-t border-white/10">
-                                <h4 className="text-xs font-semibold mb-2">
-                                    Followers ({followersCount})
-                                </h4>
-                                <div className="flex flex-wrap gap-2">
-                                    {profile.followers.map((f, i) => {
-                                        const uid =
-                                            typeof f === "string"
-                                                ? f
-                                                : f._id || f.id;
-                                        const name =
-                                            typeof f === "string"
-                                                ? f
-                                                : f.username || "User";
-                                        const avatar =
-                                            typeof f === "object"
-                                                ? f.avatar
-                                                : null;
-
-                                        return (
-                                            <Link
-                                                to={`/user/${uid}`}
-                                                key={i}
-                                                className="flex items-center
-                                                    gap-1.5 px-2.5 py-1
-                                                    rounded-full bg-white/5
-                                                    border border-white/10
-                                                    text-[11px]
-                                                    hover:border-white/30
-                                                    transition"
-                                            >
-                                                <Avatar
-                                                    src={avatar}
-                                                    name={name}
-                                                    size="h-5 w-5"
-                                                    textSize="text-[10px]"
-                                                />
-                                                {name}
-                                            </Link>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Following list - clickable */}
-                        {(profile?.following?.length ?? 0) > 0 && (
-                            <div className="mt-4 pt-4 border-t border-white/10">
-                                <h4 className="text-xs font-semibold mb-2">
-                                    Following ({followingCount})
-                                </h4>
-                                <div className="flex flex-wrap gap-2">
-                                    {profile.following.map((f, i) => {
-                                        const uid =
-                                            typeof f === "string"
-                                                ? f
-                                                : f._id || f.id;
-                                        const name =
-                                            typeof f === "string"
-                                                ? f
-                                                : f.username || "User";
-                                        const avatar =
-                                            typeof f === "object"
-                                                ? f.avatar
-                                                : null;
-
-                                        return (
-                                            <Link
-                                                to={`/user/${uid}`}
-                                                key={i}
-                                                className="flex items-center
-                                                    gap-1.5 px-2.5 py-1
-                                                    rounded-full bg-white/5
-                                                    border border-white/10
-                                                    text-[11px]
-                                                    hover:border-white/30
-                                                    transition"
-                                            >
-                                                <Avatar
-                                                    src={avatar}
-                                                    name={name}
-                                                    size="h-5 w-5"
-                                                    textSize="text-[10px]"
-                                                />
-                                                {name}
-                                            </Link>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Friends list - clickable */}
-                        {(profile?.friends?.length ?? 0) > 0 && (
-                            <div className="mt-4 pt-4 border-t border-white/10">
-                                <h4 className="text-xs font-semibold mb-2">
-                                    Friends ({friendsCount})
-                                </h4>
-                                <div className="flex flex-wrap gap-2">
-                                    {profile.friends.map((f, i) => {
-                                        const uid =
-                                            typeof f === "string"
-                                                ? f
-                                                : f._id || f.id;
-                                        const name =
-                                            typeof f === "string"
-                                                ? f
-                                                : f.username || "User";
-                                        const avatar =
-                                            typeof f === "object"
-                                                ? f.avatar
-                                                : null;
-
-                                        return (
-                                            <Link
-                                                to={`/user/${uid}`}
-                                                key={i}
-                                                className="flex items-center
-                                                    gap-1.5 px-2.5 py-1
-                                                    rounded-full bg-white/5
-                                                    border border-white/10
-                                                    text-[11px]
-                                                    hover:border-white/30
-                                                    transition"
-                                            >
-                                                <Avatar
-                                                    src={avatar}
-                                                    name={name}
-                                                    size="h-5 w-5"
-                                                    textSize="text-[10px]"
-                                                />
-                                                {name}
-                                            </Link>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
                     </form>
                 )}
 
-                {/* ── INTERESTS TAB ── */}
+                {/* INTERESTS TAB */}
                 {activeTab === "interests" && (
-                    <div className="rounded-2xl bg-white/5 border border-white/10 px-5 py-5">
-                        <h3 className="text-xs font-semibold mb-3">
-                            Interests · used for matchmaking
-                        </h3>
+                    <div className="rounded-3xl glass-panel p-6 space-y-4">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white/40 mb-1">My Matchmaking Topics</h3>
                         <form
                             onSubmit={addInterest}
-                            className="flex gap-2 mb-4"
+                            className="flex gap-2"
                         >
                             <input
-                                placeholder="#hacking"
+                                placeholder="#gaming, #tech..."
                                 value={interestInput}
-                                onChange={(e) =>
-                                    setInterestInput(e.target.value)
-                                }
-                                className="flex-1 min-w-0 rounded-xl
-                                    bg-black border border-white/15
-                                    px-3 py-2 text-xs outline-none
-                                    focus:border-white transition"
+                                onChange={(e) => setInterestInput(e.target.value)}
+                                className="flex-1 rounded-xl glass-input px-4 py-3 text-xs outline-none focus:border-white"
                             />
                             <button
                                 type="submit"
-                                className="flex-shrink-0 px-4 py-2
-                                    rounded-lg text-xs font-semibold
-                                    bg-white text-black hover:bg-gray-200
-                                    transition"
+                                className="glass-btn px-5 py-3 rounded-xl text-xs font-semibold hover:border-white"
                             >
-                                Add
+                                <FaPlus size={10} className="inline mr-1" /> Add
                             </button>
                         </form>
-                        <div className="flex flex-wrap gap-2 text-[11px]">
+                        <div className="flex flex-wrap gap-2 pt-2 min-h-6">
                             {interests.length === 0 && (
-                                <span className="text-gray-500">
-                                    No interests yet.
-                                </span>
+                                <span className="text-xs text-white/30">No matching interests set. Add topics to connect with like-minded chat partners.</span>
                             )}
                             {interests.map((tag) => (
                                 <span
                                     key={tag}
-                                    className="inline-flex items-center
-                                        gap-1 px-3 py-1 rounded-full
-                                        bg-white/5 border border-white/10
-                                        hover:border-white/30 transition"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-white/80"
                                 >
                                     #{tag}
                                     <button
                                         onClick={() => removeInterest(tag)}
-                                        className="text-gray-400
-                                            hover:text-white transition
-                                            ml-0.5"
+                                        className="text-white/30 hover:text-rose-400 text-[10px]"
                                     >
                                         ✕
                                     </button>
@@ -814,77 +566,52 @@ export default function SettingsPage() {
                     </div>
                 )}
 
-                {/* ── NOTIFICATIONS TAB ── */}
+                {/* NOTIFICATIONS TAB */}
                 {activeTab === "notifications" && (
-                    <div className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
-                        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-                            <h3 className="text-xs font-semibold">
-                                Notifications{" "}
-                                {unreadCount > 0 && (
-                                    <span className="text-yellow-400">
-                                        ({unreadCount} unread)
-                                    </span>
-                                )}
+                    <div className="rounded-3xl glass-panel overflow-hidden border border-white/5">
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-white/[0.01]">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-white/40">
+                                Notifications {unreadCount > 0 && <span className="text-amber-400">({unreadCount} unread)</span>}
                             </h3>
-                            <div className="flex gap-2">
+                            <div className="flex gap-3">
                                 <button
                                     onClick={handleMarkAllRead}
-                                    className="text-[11px] text-gray-400
-                                        hover:text-white transition"
+                                    className="text-[10px] text-white/45 hover:text-white font-semibold transition-colors"
                                 >
-                                    Mark all read
+                                    Mark All Read
                                 </button>
                                 <button
                                     onClick={handleClearAll}
-                                    className="text-[11px] text-red-400
-                                        hover:text-red-300 transition"
+                                    className="text-[10px] text-rose-400 hover:text-rose-300 font-semibold transition-colors"
                                 >
-                                    Clear all
+                                    Clear All
                                 </button>
                             </div>
                         </div>
-                        <div className="max-h-96 overflow-y-auto divide-y divide-white/5">
+                        <div className="max-h-96 overflow-y-auto divide-y divide-white/5 no-scrollbar">
                             {loadingNotifs && (
                                 <div className="flex justify-center py-8">
-                                    <div className="h-5 w-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                                    <div className="h-5 w-5 rounded-full border border-white border-t-transparent animate-spin" />
                                 </div>
                             )}
-                            {!loadingNotifs &&
-                                notifications.length === 0 && (
-                                    <div className="text-center text-gray-500 text-xs py-8">
-                                        No notifications yet.
-                                    </div>
-                                )}
+                            {!loadingNotifs && notifications.length === 0 && (
+                                <div className="text-center text-white/30 text-xs py-10">
+                                    No notifications.
+                                </div>
+                            )}
                             {notifications.map((n) => {
-                                const senderName =
-                                    typeof n.senderId === "object"
-                                        ? n.senderId?.username ||
-                                          "Someone"
-                                        : "Someone";
-                                const senderAvatar =
-                                    typeof n.senderId === "object"
-                                        ? n.senderId?.avatar
-                                        : null;
+                                const senderName = typeof n.senderId === "object" ? n.senderId?.username || "Someone" : "Someone";
+                                const senderAvatar = typeof n.senderId === "object" ? n.senderId?.avatar : null;
                                 const timeStr = n.createdAt
-                                    ? new Date(
-                                          n.createdAt
-                                      ).toLocaleString([], {
-                                          month: "short",
-                                          day: "numeric",
-                                          hour: "2-digit",
-                                          minute: "2-digit"
+                                    ? new Date(n.createdAt).toLocaleString([], {
+                                          month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
                                       })
                                     : "";
 
                                 return (
                                     <div
                                         key={n._id}
-                                        className={`flex items-start
-                                            gap-3 px-5 py-3 ${
-                                                !n.isRead
-                                                    ? "bg-white/5"
-                                                    : ""
-                                            }`}
+                                        className={`flex items-start gap-3.5 px-5 py-3.5 transition-colors ${!n.isRead ? "bg-white/[0.03]" : ""}`}
                                     >
                                         <Avatar
                                             src={senderAvatar}
@@ -893,18 +620,16 @@ export default function SettingsPage() {
                                             textSize="text-xs"
                                         />
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-xs text-gray-200">
-                                                <span className="font-semibold">
-                                                    {senderName}
-                                                </span>{" "}
+                                            <p className="text-xs text-white/80 leading-normal">
+                                                <span className="font-bold text-white">{senderName}</span>{" "}
                                                 {n.message}
                                             </p>
-                                            <p className="text-[10px] text-gray-500 mt-0.5">
+                                            <p className="text-[9px] text-white/30 mt-0.5">
                                                 {timeStr}
                                             </p>
                                         </div>
                                         {!n.isRead && (
-                                            <div className="h-2 w-2 flex-shrink-0 rounded-full bg-white mt-1" />
+                                            <div className="h-2 w-2 flex-shrink-0 rounded-full bg-white mt-1.5" />
                                         )}
                                     </div>
                                 );
@@ -913,98 +638,58 @@ export default function SettingsPage() {
                     </div>
                 )}
 
-                {/* ── SEARCH TAB ── */}
+                {/* SEARCH TAB */}
                 {activeTab === "search" && (
-                    <div className="rounded-2xl bg-white/5 border border-white/10 px-5 py-5">
-                        <h3 className="text-xs font-semibold mb-3">
-                            Find People
-                        </h3>
-                        <div className="relative mb-4">
+                    <div className="rounded-3xl glass-panel p-6 space-y-4">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-white/40">Find People</h3>
+                        <div className="relative">
+                            <FaSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/20 text-xs" />
                             <input
                                 type="text"
                                 value={searchQuery}
-                                onChange={(e) =>
-                                    handleSearch(e.target.value)
-                                }
-                                placeholder="Search by username…"
-                                className="w-full rounded-xl bg-black
-                                    border border-white/15 px-3 py-2
-                                    text-xs outline-none
-                                    focus:border-white transition"
+                                onChange={(e) => handleSearch(e.target.value)}
+                                placeholder="Search by username..."
+                                className="w-full rounded-xl glass-input pl-9 pr-4 py-3 text-xs outline-none focus:border-white"
                             />
                             {searching && (
-                                <div className="absolute right-3 top-2.5 h-3 w-3 rounded-full border border-white border-t-transparent animate-spin" />
+                                <div className="absolute right-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border border-white border-t-transparent animate-spin" />
                             )}
                         </div>
-                        <div className="space-y-2">
-                            {searchResults.length === 0 &&
-                                searchQuery.length >= 2 &&
-                                !searching && (
-                                    <div className="text-center text-gray-500 text-xs py-4">
-                                        No users found.
-                                    </div>
-                                )}
+                        <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1 no-scrollbar">
+                            {searchResults.length === 0 && searchQuery.length >= 2 && !searching && (
+                                <div className="text-center text-white/30 text-xs py-4">No matching users found.</div>
+                            )}
                             {searchResults.map((u) => {
                                 const uid = u._id || u.id;
                                 const name = u.username || "User";
-                                const isF = followingIds.has(
-                                    uid?.toString()
-                                );
+                                const isF = followingIds.has(uid?.toString());
                                 return (
                                     <div
                                         key={uid}
-                                        className="flex items-center
-                                            gap-3 px-3 py-2.5
-                                            rounded-xl bg-black/40
-                                            border border-white/10"
+                                        className="flex items-center gap-3 p-2.5 rounded-2xl bg-white/[0.01] border border-white/5 hover:border-white/10 transition-all"
                                     >
-                                        <Link to={`/user/${uid}`}>
-                                            <Avatar
-                                                src={u.avatar}
-                                                name={name}
-                                                size="h-9 w-9"
-                                                textSize="text-sm"
-                                            />
-                                        </Link>
-                                        <Link
-                                            to={`/user/${uid}`}
-                                            className="flex-1 min-w-0"
-                                        >
-                                            <div className="text-xs font-semibold">
-                                                {name}
+                                        <Avatar
+                                            src={u.avatar}
+                                            name={name}
+                                            size="h-9 w-9"
+                                            textSize="text-sm"
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-xs font-bold text-white/90 leading-tight">{name}</div>
+                                            <div className="flex items-center gap-2 text-[9px] text-white/45 mt-0.5">
+                                                {u.isOnline && <span className="text-emerald-400 font-semibold">● Online</span>}
+                                                {u.rank?.count > 0 && <span className="flex items-center gap-0.5"><FaStar size={8} className="text-amber-400" /> {u.rank.count}</span>}
                                             </div>
-                                            <div className="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
-                                                {u.isOnline && (
-                                                    <span className="text-green-400">
-                                                        ● Online
-                                                    </span>
-                                                )}
-                                                {u.rank?.count > 0 && (
-                                                    <span>
-                                                        ★{" "}
-                                                        {u.rank.count}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </Link>
+                                        </div>
                                         <button
-                                            onClick={() =>
-                                                handleFollowToggle(
-                                                    uid?.toString()
-                                                )
-                                            }
-                                            className={`flex-shrink-0
-                                                text-[10px] px-3 py-1
-                                                rounded-full border
-                                                transition ${
-                                                    isF
-                                                        ? "border-white/30 text-gray-400 hover:border-red-400 hover:text-red-400"
-                                                        : "border-white text-white hover:bg-white hover:text-black"
-                                                }`}
+                                            onClick={() => handleFollowToggle(uid?.toString())}
+                                            className={`flex-shrink-0 text-[10px] px-3 py-1.5 rounded-full border transition-all font-semibold ${
+                                                isF
+                                                    ? "border-white/15 text-white/40 hover:border-rose-500/30 hover:text-rose-400"
+                                                    : "border-white text-black bg-white hover:bg-transparent hover:text-white"
+                                            }`}
                                         >
-                                            {isF
-                                                ? "Unfollow"
-                                                : "Follow"}
+                                            {isF ? "Following" : "Follow"}
                                         </button>
                                     </div>
                                 );
@@ -1013,92 +698,59 @@ export default function SettingsPage() {
                     </div>
                 )}
 
-                {/* ── LEADERBOARD TAB ── */}
+                {/* LEADERBOARD TAB */}
                 {activeTab === "leaderboard" && (
-                    <div className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
-                        <div className="px-5 py-4 border-b border-white/10">
-                            <h3 className="text-xs font-semibold">
-                                Top Ranked Users ★
+                    <div className="rounded-3xl glass-panel overflow-hidden border border-white/5">
+                        <div className="px-5 py-4 border-b border-white/5 bg-white/[0.01]">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-white/40 flex items-center gap-1.5">
+                                <FaTrophy className="text-amber-400" /> Top Ranked Users
                             </h3>
                         </div>
-                        <div className="divide-y divide-white/5">
+                        <div className="divide-y divide-white/5 max-h-96 overflow-y-auto no-scrollbar">
                             {loadingLB && (
                                 <div className="flex justify-center py-8">
-                                    <div className="h-5 w-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                                    <div className="h-5 w-5 rounded-full border border-white border-t-transparent animate-spin" />
                                 </div>
                             )}
-                            {!loadingLB &&
-                                leaderboard.length === 0 && (
-                                    <div className="text-center text-gray-500 text-xs py-8">
-                                        No ranked users yet.
-                                    </div>
-                                )}
+                            {!loadingLB && leaderboard.length === 0 && (
+                                <div className="text-center text-white/30 text-xs py-8">No leaderboard data found.</div>
+                            )}
                             {leaderboard.map((u, i) => {
                                 const uid = u._id || u.id;
                                 const name = u.username || "User";
-                                const medal =
-                                    i === 0
-                                        ? "🥇"
-                                        : i === 1
-                                        ? "🥈"
-                                        : i === 2
-                                        ? "🥉"
-                                        : `#${i + 1}`;
-                                const isF = followingIds.has(
-                                    uid?.toString()
-                                );
+                                const isF = followingIds.has(uid?.toString());
                                 return (
                                     <div
                                         key={uid}
-                                        className="flex items-center
-                                            gap-3 px-5 py-3
-                                            hover:bg-white/5 transition"
+                                        className="flex items-center gap-3 px-5 py-3.5 hover:bg-white/[0.02] transition-colors"
                                     >
-                                        <span className="text-base w-8 text-center flex-shrink-0">
-                                            {medal}
+                                        <span className="text-xs font-bold text-white/30 w-6 text-center flex-shrink-0">
+                                            #{i + 1}
                                         </span>
-                                        <Link to={`/user/${uid}`}>
-                                            <Avatar
-                                                src={u.avatar}
-                                                name={name}
-                                                size="h-8 w-8"
-                                                textSize="text-xs"
-                                            />
-                                        </Link>
-                                        <Link
-                                            to={`/user/${uid}`}
-                                            className="flex-1 min-w-0"
-                                        >
-                                            <div className="text-xs font-semibold">
-                                                {name}
-                                            </div>
+                                        <Avatar
+                                            src={u.avatar}
+                                            name={name}
+                                            size="h-8 w-8"
+                                            textSize="text-xs"
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-xs font-bold text-white/95 truncate leading-tight">{name}</div>
                                             {u.isOnline && (
-                                                <div className="text-[10px] text-green-400">
-                                                    Online
-                                                </div>
+                                                <div className="text-[9px] text-emerald-400 font-semibold mt-0.5">Online</div>
                                             )}
-                                        </Link>
-                                        <span className="text-yellow-400 font-bold text-sm mr-2">
-                                            ★ {u.rank?.count ?? 0}
+                                        </div>
+                                        <span className="text-amber-400 font-bold text-xs mr-3 flex items-center gap-0.5">
+                                            <FaStar size={10} /> {u.rank?.count ?? 0}
                                         </span>
                                         <button
-                                            onClick={() =>
-                                                handleFollowToggle(
-                                                    uid.toString()
-                                                )
-                                            }
-                                            className={`flex-shrink-0
-                                                text-[10px] px-3 py-1
-                                                rounded-full border
-                                                transition ${
-                                                    isF
-                                                        ? "border-white/30 text-gray-400 hover:border-red-400 hover:text-red-400"
-                                                        : "border-white text-white hover:bg-white hover:text-black"
-                                                }`}
+                                            onClick={() => handleFollowToggle(uid.toString())}
+                                            className={`flex-shrink-0 text-[10px] px-3 py-1.5 rounded-full border transition-all font-semibold ${
+                                                isF
+                                                    ? "border-white/15 text-white/40 hover:border-rose-500/30 hover:text-rose-400"
+                                                    : "border-white text-black bg-white hover:bg-transparent hover:text-white"
+                                            }`}
                                         >
-                                            {isF
-                                                ? "Unfollow"
-                                                : "Follow"}
+                                            {isF ? "Following" : "Follow"}
                                         </button>
                                     </div>
                                 );
@@ -1107,6 +759,30 @@ export default function SettingsPage() {
                     </div>
                 )}
             </main>
+
+            {/* Glassmorphic Mobile Bottom Nav */}
+            <div className="md:hidden fixed bottom-5 left-5 right-5 h-16 glass-panel rounded-2xl flex items-center justify-around z-40 px-3">
+                <Link to="/dashboard" className="flex flex-col items-center gap-1 text-white/45 hover:text-white text-xs transition-colors">
+                    <FaHome size={18} />
+                    <span className="text-[9px] font-medium tracking-wide">Home</span>
+                </Link>
+                <Link to="/feed" className="flex flex-col items-center gap-1 text-white/45 hover:text-white text-xs transition-colors">
+                    <CgCommunity size={18} />
+                    <span className="text-[9px] font-medium tracking-wide">Feed</span>
+                </Link>
+                <Link to="/post" className="flex flex-col items-center gap-1 text-white/45 hover:text-white text-xs transition-colors">
+                    <IoIosAddCircle size={18} />
+                    <span className="text-[9px] font-medium tracking-wide">Post</span>
+                </Link>
+                <Link to="/chat-history" className="flex flex-col items-center gap-1 text-white/45 hover:text-white text-xs transition-colors">
+                    <FaHistory size={15} />
+                    <span className="text-[9px] font-medium tracking-wide">History</span>
+                </Link>
+                <Link to="/settings" className="flex flex-col items-center gap-1 text-white text-xs">
+                    <IoIosSettings size={18} />
+                    <span className="text-[9px] font-medium tracking-wide">Settings</span>
+                </Link>
+            </div>
         </div>
     );
 }
