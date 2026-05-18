@@ -308,7 +308,7 @@ export default function SettingsPage() {
     ];
 
     return (
-        <div className="min-h-screen bg-[#030303] text-white antialiased pb-20 md:pb-0">
+        <div className="h-full overflow-y-auto no-scrollbar bg-[#030303] text-white antialiased pb-24">
             {/* Background glow elements */}
             <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-500/5 blur-[120px] pointer-events-none pulse-glow-bg" />
             <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-rose-500/5 blur-[120px] pointer-events-none pulse-glow-bg" style={{ animationDelay: "-3s" }} />

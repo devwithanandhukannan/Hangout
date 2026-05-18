@@ -594,7 +594,7 @@ export default function ChatPage() {
 
   return (
     <div
-      className="h-screen flex flex-col text-white antialiased overflow-hidden transition-colors duration-700 relative"
+      className="h-full flex flex-col text-white antialiased overflow-hidden transition-colors duration-700 relative"
       style={{ backgroundColor: bgFlash ? "#4c0519" : "#030303" }}
     >
       {/* Glow elements */}
