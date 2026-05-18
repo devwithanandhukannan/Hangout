@@ -25,13 +25,13 @@ export default defineConfig({
     
     proxy: {
   "/api": {
-    target: "http://localhost:8000",
+    target: "https://hangout-all4.onrender.com/",
     changeOrigin: true,
     rewrite: (path) => path.replace(/^\/api/, ""),
   },
 
   "/socket.io": {
-    target: "http://localhost:8000",
+    target: "https://hangout-all4.onrender.com/",
     changeOrigin: true,
     ws: true
   }
