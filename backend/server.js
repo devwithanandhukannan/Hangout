@@ -398,6 +398,23 @@ async function togglePostReaction(io, userId, postId, reactionType) {
     };
 }
 
+// Haversine distance calculator in kilometers
+function getHaversineDistance(lat1, lon1, lat2, lon2) {
+    if (lat1 === undefined || lon1 === undefined || lat2 === undefined || lon2 === undefined) return null;
+    if (lat1 === null || lon1 === null || lat2 === null || lon2 === null) return null;
+    const R = 6371; // Radius of the Earth in km
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * (Math.PI / 180)) *
+        Math.cos(lat2 * (Math.PI / 180)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
 // Advanced matching algorithm: rank + interest + history
 async function calculateMatchScore(userId1, userId2) {
     const [user1, user2] = await Promise.all([
@@ -470,7 +487,7 @@ async function calculateMatchScore(userId1, userId2) {
 
 app.post('/signup', async (req, res) => {
     console.log('reached');
-    
+
     try {
         const { username, password, email } = req.body;
 
@@ -1814,16 +1831,16 @@ io.on('connection', async socket => {
             }, 35_000);
 
             pendingDirectRequests.set(room, {
-                fromId       : socket.userId,
-                fromSocketId : socket.id,
+                fromId: socket.userId,
+                fromSocketId: socket.id,
                 toId,
                 toSocketId,
                 timer,
             });
 
             io.to(toSocketId).emit('directChatRequest', {
-                fromId   : socket.userId,
-                fromName : socket.username || 'A friend',
+                fromId: socket.userId,
+                fromName: socket.username || 'A friend',
                 room,
             });
 
@@ -1848,7 +1865,7 @@ io.on('connection', async socket => {
 
             // Look up current socket IDs (may have changed since request)
             const fromSocketId = activeUsers.get(toId);
-            const toSocketId   = socket.id;
+            const toSocketId = socket.id;
 
             // Join both sockets into the room
             socket.join(room);
@@ -1862,9 +1879,9 @@ io.on('connection', async socket => {
 
             const chatStartedPayload = {
                 room,
-                matchType       : 'direct',
-                commonInterests : [],
-                matchScore      : 0,
+                matchType: 'direct',
+                commonInterests: [],
+                matchScore: 0,
             };
 
             // Tell requester (toId / A) chat has started
@@ -1894,8 +1911,8 @@ io.on('connection', async socket => {
             const toSocketId = activeUsers.get(toId);
             if (toSocketId) {
                 io.to(toSocketId).emit('directChatDeclined', {
-                    byName : socket.username || 'Friend',
-                    byId   : socket.userId,
+                    byName: socket.username || 'Friend',
+                    byId: socket.userId,
                     room,
                 });
             }
@@ -1912,8 +1929,8 @@ io.on('connection', async socket => {
             const toSocketId = activeUsers.get(toId);
             if (toSocketId) {
                 io.to(toSocketId).emit('directChatCancelled', {
-                    byName : socket.username || 'Friend',
-                    byId   : socket.userId,
+                    byName: socket.username || 'Friend',
+                    byId: socket.userId,
                     room,
                 });
             }
@@ -2425,8 +2442,8 @@ io.on('connection', async socket => {
                 const recipientSocketId = activeUsers.get(entry.toId);
                 if (recipientSocketId) {
                     io.to(recipientSocketId).emit('directChatCancelled', {
-                        byName : socket.username || 'Friend',
-                        byId   : socket.userId,
+                        byName: socket.username || 'Friend',
+                        byId: socket.userId,
                         room,
                     });
                 }
